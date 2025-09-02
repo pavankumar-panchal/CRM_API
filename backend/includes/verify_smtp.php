@@ -13,7 +13,7 @@ header("Access-Control-Allow-Methods: GET");
 $servername = "127.0.0.1";
 $username = "root"; 
 $password = "";
-$dbname = "CRM";
+$dbname = "CRM_API";
 
 // Create main connection
 $conn = new mysqli($servername, $username, $password, $dbname);
@@ -50,7 +50,7 @@ if (!file_exists(WORKER_SCRIPT)) {
 $servername = "127.0.0.1";
 $username = "root";
 $password = "";
-$dbname = "CRM";
+$dbname = "CRM_API";
 
 $conn = new mysqli($servername, $username, $password, $dbname);
 $conn->set_charset("utf8mb4");

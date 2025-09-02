@@ -245,7 +245,7 @@ const Auth = ({ setUser }) => {
                 )}
               </button>
             </div>
-            <div className="mt-6 text-center"> Already have an account?{" "}
+            <div className="mt-6 text-center">
               <button
                 className="text-blue-600 hover:underline focus:outline-none"
                 type="button"
@@ -255,7 +255,7 @@ const Auth = ({ setUser }) => {
                   setFormData({ email: "", password: "", name: "" });
                 }}
               >
-                   Login
+                Already have an account? Login
               </button>
             </div>
           </form>
@@ -324,7 +324,7 @@ const Auth = ({ setUser }) => {
                 )}
               </button>
             </div>
-            <div className="mt-6 text-center">Don't have an account?{" "}
+            <div className="mt-6 text-center">
               <button
                 className="text-blue-600 hover:underline focus:outline-none"
                 type="button"
@@ -334,7 +334,7 @@ const Auth = ({ setUser }) => {
                   setFormData({ email: "", password: "", name: "" });
                 }}
               >
-                 Register
+                Don't have an account? Register
               </button>
             </div>
           </form>

@@ -7,7 +7,7 @@ const API_BASE = "http://localhost/CRM_API/backend/routes/api.php";
 const checkRetryProgress = async () => {
   try {
     const res = await fetch(
-      "http://localhost/Verify_email/backend/includes/retry_smtp.php?progress=1"
+      "http://localhost/CRM_API/backend/includes/retry_smtp.php?progress=1"
     );
     return await res.json();
   } catch (error) {
@@ -95,7 +95,7 @@ const EmailVerification = () => {
       });
 
       const res = await fetch(
-        `http://localhost/Verify_email/backend/includes/get_csv_list.php?${params}`
+        `http://localhost/CRM_API/backend/includes/get_csv_list.php?${params}`
       );
       const data = await res.json();
 
@@ -113,7 +113,7 @@ const EmailVerification = () => {
   const fetchRetryFailedCount = async () => {
     try {
       const res = await fetch(
-        "http://localhost/Verify_email/backend/includes/get_results.php?retry_failed=1"
+        "http://localhost/CRM_API/backend/includes/get_results.php?retry_failed=1"
       );
       const data = await res.json();
       if (data.status === "success") {
@@ -189,7 +189,7 @@ const EmailVerification = () => {
     try {
       setLoading(true);
       const res = await fetch(
-        "http://localhost/Verify_email/backend/routes/api.php/api/upload",
+        "http://localhost/CRM_API/backend/routes/api.php/api/upload",
         {
           method: "POST",
           body: formDataObj,
@@ -220,7 +220,7 @@ const EmailVerification = () => {
 
   const exportEmails = async (type, listId) => {
     try {
-      const url = `http://localhost/Verify_email/backend/includes/get_results.php?export=${type}&csv_list_id=${listId}`;
+      const url = `http://localhost/CRM_API/backend/includes/get_results.php?export=${type}&csv_list_id=${listId}`;
       const res = await fetch(url);
       const blob = await res.blob();
 
@@ -360,7 +360,7 @@ const EmailVerification = () => {
 
       // Start by checking how many need retry
       const resCount = await fetch(
-        "http://localhost/Verify_email/backend/includes/get_results.php?retry_failed=1"
+        "http://localhost/CRM_API/backend/includes/get_results.php?retry_failed=1"
       );
       const countData = await resCount.json();
 
@@ -372,7 +372,7 @@ const EmailVerification = () => {
 
       // Start the retry process
       const resStart = await fetch(
-        "http://localhost/Verify_email/backend/routes/api.php/api/retry-failed",
+        "http://localhost/CRM_API/backend/routes/api.php/api/retry-failed",
         { method: "POST" }
       );
       const startData = await resStart.json();
@@ -416,7 +416,7 @@ const EmailVerification = () => {
     try {
       // Fetch failed count for this list
       const resCount = await fetch(
-        `http://localhost/Verify_email/backend/includes/get_results.php?retry_failed=1&csv_list_id=${listId}`
+        `http://localhost/CRM_API/backend/includes/get_results.php?retry_failed=1&csv_list_id=${listId}`
       );
       const countData = await resCount.json();
 
@@ -428,7 +428,7 @@ const EmailVerification = () => {
 
       // Start retry for this list
       const resStart = await fetch(
-        `http://localhost/Verify_email/backend/includes/retry_smtp.php?csv_list_id=${listId}`,
+        `http://localhost/CRM_API/backend/includes/retry_smtp.php?csv_list_id=${listId}`,
         { method: "POST" }
       );
       const startData = await resStart.json();

@@ -15,7 +15,7 @@ error_reporting(0);
 $servername = "127.0.0.1";  // Use IP instead of localhost
 $username = "root";
 $password = "";
-$dbname = "CRM";
+$dbname = "CRM_API";
 
 $conn = new mysqli($servername, $username, $password, $dbname);
 

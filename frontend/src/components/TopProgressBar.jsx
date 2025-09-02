@@ -10,7 +10,7 @@ const TopProgressBar = () => {
     const fetchProgress = async () => {
       try {
         const res = await fetch(
-          "http://localhost/Verify_email/backend/includes/progress.php"
+          "http://localhost/CRM_API/backend/includes/progress.php"
         );
         const data = await res.json();
         if (

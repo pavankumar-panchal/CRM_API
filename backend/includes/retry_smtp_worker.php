@@ -3,7 +3,7 @@
 $servername = "127.0.0.1";
 $username = "root";
 $password = "";
-$dbname = "CRM";
+$dbname = "CRM_API";
 
 // Log database connection
 $log_dbname = "CRM_logs";

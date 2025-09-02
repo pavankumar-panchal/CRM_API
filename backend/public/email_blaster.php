@@ -37,7 +37,7 @@ while (true) {
             'host' => '127.0.0.1',
             'username' => 'root',
             'password' => '',
-            'name' => 'CRM',
+            'name' => 'CRM_API',
             'port' => 3306
         ];
 

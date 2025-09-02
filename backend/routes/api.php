@@ -215,49 +215,49 @@ if ($method === 'POST' && ($endpoint ?? '') === 'logout') {
 try {
     switch (true) {
         case ($request === '/api/upload'):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             require __DIR__ . '/../public/email_processor.php';
             break;
 
         case ($request === '/api/results'):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             require __DIR__ . '/../includes/get_results.php';
             break;
 
         case ($request === '/api/monitor/campaigns' && $method === 'GET'):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             require __DIR__ . '/../includes/monitor_campaigns.php';
             break;
 
         case ($request === '/api/master/campaigns'):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             require __DIR__ . '/../includes/campaign.php';
             break;
 
         case ($request === '/api/master/campaigns_master'):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             require __DIR__ . '/../public/campaigns_master.php';
             break;
 
         case ($request === '/api/master/smtps'):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             require __DIR__ . '/../includes/master_smtps.php';
             break;
 
         case ($request === '/api/master/distribution'):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             require __DIR__ . '/../includes/campaign_distribution.php';
             break;
 
         case ($request === '/api/retry-failed' && $method === 'POST'):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             $cmd = 'php ' . escapeshellarg(__DIR__ . '/../includes/retry_smtp.php') . ' > /dev/null 2>&1 &';
             exec($cmd);
             send_json(['status' => 'success', 'message' => 'Retry process started in background.']);
             break;
 
         case ($request === '/api/master/email-counts'):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             $result = $conn->query("
                 SELECT
                     COUNT(*) AS total_valid,
@@ -278,26 +278,26 @@ try {
             break;
 
         case ($request === '/api/workers'):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             require __DIR__ . '/../includes/workers.php';
             break;
 
         case ($request === '/api/received-response'):
         case ($request === '/api/emails'):
         case (strpos($request, '/api/emails') === 0):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             require __DIR__ . '/../app/received_response.php';
             break;
 
         case (preg_match('#^/api/master/smtps/(\d+)/accounts/(\d+)$#', $request, $m) ? true : false):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             $_GET['smtp_server_id'] = $m[1];
             $_GET['account_id']     = $m[2];
             require __DIR__ . '/../includes/smtp_accounts.php';
             break;
 
         case (preg_match('#^/api/master/smtps/(\d+)/accounts$#', $request, $m) ? true : false):
-            authenticate($secretKey);
+            // authenticate($secretKey);
             $_GET['smtp_server_id'] = $m[1];
             require __DIR__ . '/../includes/smtp_accounts.php';
             break;

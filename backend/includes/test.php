@@ -9,7 +9,7 @@ header("Access-Control-Allow-Methods: GET");
 $servername = "127.0.0.1";
 $username = "root";
 $password = "";
-$dbname = "CRM";
+$dbname = "CRM_API";
 
 $conn = new mysqli($servername, $username, $password, $dbname);
 if ($conn->connect_error) {
@@ -26,7 +26,7 @@ ini_set('memory_limit', '512M');
 
 if (!file_exists(WORKER_SCRIPT)) {
     $worker_code = '<?php
-    $conn = new mysqli("127.0.0.1", "root", "", "CRM");
+    $conn = new mysqli("127.0.0.1", "root", "", "CRM_API");
     if ($conn->connect_error) exit(1);
 
     $start_id = $argv[1] ?? 0;

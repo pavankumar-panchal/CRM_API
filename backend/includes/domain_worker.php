@@ -1,5 +1,5 @@
 <?php
-$mysqli = new mysqli("127.0.0.1", "root", "", "CRM");
+$mysqli = new mysqli("127.0.0.1", "root", "", "CRM_API");
 if ($mysqli->connect_error) exit(1);
 
 $start_id = $argv[1] ?? 0;
