@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 const API_BASE = "http://localhost/CRM_API/backend/routes/api.php";
 
-const Auth = () => {
+const Auth = ({ setUser }) => {
   const [step, setStep] = useState("register"); // "register" or "login"
   const [formData, setFormData] = useState({
     email: "",
@@ -75,6 +75,14 @@ const Auth = () => {
       const data = await res.json();
 
       if (data.status === "success") {
+        // Fetch user info after login
+        const userRes = await fetch(`${API_BASE}?endpoint=check-auth`, {
+          credentials: "include",
+        });
+        const userData = await userRes.json();
+        if (userData.status === "success") {
+          setUser(userData.user); // <-- Update user state for Navbar
+        }
         setStatus({ type: "success", message: "Login successful!" });
         navigate("/"); // <-- Redirect to main page
       } else {
