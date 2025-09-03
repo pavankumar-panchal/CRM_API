@@ -5,9 +5,22 @@ session_start();
 
 header('Content-Type: application/json');
 
-// Print all session data
-echo json_encode([
-    "status" => "success",
-    "session" => $_SESSION
-]);
-exit;
+if (isset($_SESSION['user_id']) && isset($_SESSION['user_name']) && isset($_SESSION['user_email'])) {
+    echo json_encode([
+        "status" => "success",
+        "logged_in" => true,
+        "user" => [
+            "id"    => $_SESSION['user_id'],
+            "name"  => $_SESSION['user_name'],
+            "email" => $_SESSION['user_email'],
+        ],
+        "session" => $_SESSION
+    ]);
+} else {
+    echo json_encode([
+        "status" => "success",
+        "logged_in" => false,
+        "message" => "No user is currently logged in.",
+        "session" => $_SESSION
+    ]);
+}

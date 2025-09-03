@@ -16,7 +16,10 @@ const EmailsList = ({ listId, onClose }) => {
     try {
       setLoading(true);
       const res = await fetch(
-        `http://localhost/CRM_API/backend/routes/api.php/api/results?csv_list_id=${listId}&limit=1000000`
+        `http://localhost/CRM_API/backend/routes/api.php/api/results?csv_list_id=${listId}&limit=1000000`,
+        {
+          credentials: "include", // <-- Ensure session is sent!
+        }
       );
       const data = await res.json();
       setListEmails(Array.isArray(data.data) ? data.data : []);
@@ -24,6 +27,7 @@ const EmailsList = ({ listId, onClose }) => {
         ...prev,
         total: Array.isArray(data.data) ? data.data.length : 0,
       }));
+      console.log("Fetched emails:", data.data);
     } catch (error) {
       setListEmails([]);
       setStatus({ type: "error", message: "Failed to load list emails" });

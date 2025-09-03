@@ -1,4 +1,40 @@
 <?php
+session_start();
+
+$origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
+$allowedOrigins = [
+    'http://localhost',
+    'http://127.0.0.1',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:8080',
+];
+if ($origin && in_array($origin, $allowedOrigins, true)) {
+    header("Access-Control-Allow-Origin: $origin");
+    header("Vary: Origin");
+    header("Access-Control-Allow-Credentials: true");
+}
+header('Content-Type: application/json');
+header("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, X-Requested-With");
+
+// Handle preflight OPTIONS
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
+
+// Check session for logged-in user
+if (!isset($_SESSION['user_id']) || !isset($_SESSION['user_name']) || !isset($_SESSION['user_email'])) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "Not authenticated",
+        "session" => $_SESSION
+    ]);
+    exit;
+}
+
+$user_id = intval($_SESSION['user_id']);
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -6,10 +42,6 @@ error_reporting(E_ALL);
 
 ini_set('memory_limit', '1024M');
 ini_set('max_execution_time', 300);
-header('Content-Type: application/json');
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
 
 // Ensure REQUEST_METHOD is set for CLI runs
 if (!isset($_SERVER['REQUEST_METHOD'])) {
@@ -28,8 +60,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
     parse_str(file_get_contents("php://input"), $deleteVars);
     $id = isset($deleteVars['id']) ? intval($deleteVars['id']) : 0;
     if ($id > 0) {
-        $stmt = $conn->prepare("DELETE FROM emails WHERE id = ?");
-        $stmt->bind_param("i", $id);
+        // Only delete if email belongs to this user
+        $stmt = $conn->prepare("DELETE FROM emails WHERE id = ? AND user_id = ?");
+        $stmt->bind_param("ii", $id, $user_id);
         $success = $stmt->execute();
         $stmt->close();
         echo json_encode([
@@ -49,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
 if (isset($_GET['export'])) {
     $type = $_GET['export'];
     $csv_list_id = isset($_GET['csv_list_id']) ? intval($_GET['csv_list_id']) : 0;
-    $where = [];
+    $where = ["user_id = $user_id"];
     $filename = $type . '_emails.csv';
 
     if ($type === 'valid') {
@@ -91,7 +124,7 @@ if (isset($_GET['retry_failed']) && $_GET['retry_failed'] == '1') {
     $offset = ($page - 1) * $limit;
     $csv_list_id = isset($_GET['csv_list_id']) ? intval($_GET['csv_list_id']) : 0;
 
-    $where = ["domain_status = 2"];
+    $where = ["domain_status = 2", "user_id = $user_id"];
     if ($csv_list_id > 0) $where[] = "csv_list_id = $csv_list_id";
     $whereSql = "WHERE " . implode(" AND ", $where);
 
@@ -129,9 +162,9 @@ $offset = ($page - 1) * $limit;
 
 $csv_list_id = isset($_GET['csv_list_id']) ? intval($_GET['csv_list_id']) : 0;
 $filter = isset($_GET['filter']) ? $_GET['filter'] : '';
-$whereParts = [];
-$params = [];
-$types = '';
+$whereParts = ["user_id = ?"];
+$params = [$user_id];
+$types = 'i';
 
 if ($csv_list_id > 0) {
     $whereParts[] = "csv_list_id = ?";
@@ -171,14 +204,10 @@ $countStmt->close();
 // Get paginated data
 $sql = "SELECT id, raw_emailid AS email, sp_account, sp_domain, domain_verified, domain_status, validation_response 
         FROM emails $where ORDER BY id ASC LIMIT ? OFFSET ?";
+$typesWithLimit = $types . 'ii';
+$dataParams = array_merge($params, [$limit, $offset]);
 $dataStmt = $conn->prepare($sql);
-if ($params) {
-    $typesWithLimit = $types . 'ii';
-    $dataParams = array_merge($params, [$limit, $offset]);
-    $dataStmt->bind_param($typesWithLimit, ...$dataParams);
-} else {
-    $dataStmt->bind_param('ii', $limit, $offset);
-}
+$dataStmt->bind_param($typesWithLimit, ...$dataParams);
 $dataStmt->execute();
 $result = $dataStmt->get_result();
 

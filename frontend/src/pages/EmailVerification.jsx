@@ -97,11 +97,15 @@ const EmailVerification = () => {
       });
 
       const res = await fetch(
-        `http://localhost/CRM_API/backend/includes/get_csv_list.php?${params}`
+        `http://localhost/CRM_API/backend/includes/get_csv_list.php?${params}`,
+        {
+          credentials: "include", 
+        }
       );
       const data = await res.json();
 
       setLists(Array.isArray(data.data) ? data.data : []);
+      console.log("Fetched lists:", data.data); // <-- Debug log
       setListPagination((prev) => ({ ...prev, total: data.total || 0 }));
     } catch (error) {
       console.error("Error fetching lists:", error);
@@ -804,146 +808,118 @@ const EmailVerification = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {lists.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={6}
-                    className="px-6 py-4 text-center text-gray-500 text-sm"
-                  >
+                  <td colSpan={6} className="px-6 py-4 text-center text-gray-500 text-sm">
                     {listPagination.search
                       ? "No lists match your search criteria"
                       : "No lists found. Upload a CSV file to get started."}
                   </td>
                 </tr>
               ) : (
-                // Filter lists by list name (case-insensitive)
-                lists
-                  .filter((list) =>
-                    list.list_name
-                      .toLowerCase()
-                      .includes(listPagination.search.toLowerCase())
-                  )
-                  .map((list) => (
-                    <tr
-                      key={list.id}
-                      className="hover:bg-gray-50 transition-colors"
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {list.id}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {list.list_name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`px-2.5 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${statusBadgeColor(
-                            list.status
-                          )}`}
+                lists.map((list) => (
+                  <tr key={list.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {list.id}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {list.list_name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`px-2.5 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${statusBadgeColor(
+                          list.status
+                        )}`}
+                      >
+                        {list.status.charAt(0).toUpperCase() + list.status.slice(1)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {list.total_emails} total
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <span className="text-emerald-600 font-medium">
+                        {list.valid_count || 0} valid
+                      </span>{" "}
+                      /{" "}
+                      <span className="text-red-600 font-medium">
+                        {list.invalid_count || 0} invalid
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-2">
+                      {/* Actions */}
+                      <button
+                        onClick={() => setExpandedListId(list.id)}
+                        className="text-blue-600 hover:text-blue-800 transition-colors flex items-center"
+                      >
+                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        View
+                      </button>
+                      <button
+                        onClick={() => exportEmails("valid", list.id)}
+                        className="text-green-600 hover:text-green-800 transition-colors flex items-center"
+                      >
+                        <svg
+                          className="w-4 h-4 mr-1"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
                         >
-                          {list.status.charAt(0).toUpperCase() +
-                            list.status.slice(1)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {list.total_emails} total
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className="text-emerald-600 font-medium">
-                          {list.valid_count || 0} valid
-                        </span>{" "}
-                        /{" "}
-                        <span className="text-red-600 font-medium">
-                          {list.invalid_count || 0} invalid
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-2">
-                        <button
-                          onClick={() => setExpandedListId(list.id)}
-                          className="text-blue-600 hover:text-blue-800 transition-colors flex items-center"
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                          />
+                        </svg>
+                        Valid
+                      </button>
+                      <button
+                        onClick={() => exportEmails("invalid", list.id)}
+                        className="text-red-600 hover:text-red-800 transition-colors flex items-center"
+                      >
+                        <svg
+                          className="w-4 h-4 mr-1"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
                         >
-                          <svg
-                            className="w-4 h-4 mr-1"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="2"
-                              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                            />
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="2"
-                              d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                            />
-                          </svg>
-                          View
-                        </button>
-                        <button
-                          onClick={() => exportEmails("valid", list.id)}
-                          className="text-green-600 hover:text-green-800 transition-colors flex items-center"
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                          />
+                        </svg>
+                        Invalid
+                      </button>
+                      <button
+                        onClick={() => handleRetryFailedByList(list.id)}
+                        disabled={retryingList[list.id] || !list.failed_count}
+                        className="text-yellow-600 hover:text-yellow-800 transition-colors flex items-center border border-yellow-300 rounded px-2 py-1 disabled:opacity-60"
+                        title="Retry failed emails for this list"
+                      >
+                        <svg
+                          className={`w-4 h-4 mr-1 ${retryingList[list.id] ? "animate-spin" : ""}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
                         >
-                          <svg
-                            className="w-4 h-4 mr-1"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="2"
-                              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                            />
-                          </svg>
-                          Valid
-                        </button>
-                        <button
-                          onClick={() => exportEmails("invalid", list.id)}
-                          className="text-red-600 hover:text-red-800 transition-colors flex items-center"
-                        >
-                          <svg
-                            className="w-4 h-4 mr-1"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="2"
-                              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                            />
-                          </svg>
-                          Invalid
-                        </button>
-                        <button
-                          onClick={() => handleRetryFailedByList(list.id)}
-                          disabled={retryingList[list.id] || !list.failed_count}
-                          className="text-yellow-600 hover:text-yellow-800 transition-colors flex items-center border border-yellow-300 rounded px-2 py-1 disabled:opacity-60"
-                          title="Retry failed emails for this list"
-                        >
-                          <svg
-                            className={`w-4 h-4 mr-1 ${retryingList[list.id] ? "animate-spin" : ""}`}
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="2"
-                              d="M4 4v5h5M20 20v-5h-5M5.5 8.5a8 8 0 0113 0M18.5 15.5a8 8 0 01-13 0"
-                            />
-                          </svg>
-                          {retryingList[list.id]
-                            ? "Retrying..."
-                            : `Retry (${list.failed_count || 0})`}
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M4 4v5h5M20 20v-5h-5M5.5 8.5a8 8 0 0113 0M18.5 15.5a8 8 0 01-13 0"
+                          />
+                        </svg>
+                        {retryingList[list.id]
+                          ? "Retrying..."
+                          : `Retry (${list.failed_count || 0})`}
+                      </button>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
