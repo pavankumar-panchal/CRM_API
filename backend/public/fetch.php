@@ -1,26 +1,23 @@
 <?php
 // filepath: /opt/lampp/htdocs/CRM_API/backend/public/fetch.php
 
-session_start();
-
+require_once __DIR__ . '/../config/jwt.php';
 header('Content-Type: application/json');
-
-if (isset($_SESSION['user_id']) && isset($_SESSION['user_name']) && isset($_SESSION['user_email'])) {
+$data = decode_jwt_from_header();
+if ($data) {
     echo json_encode([
         "status" => "success",
         "logged_in" => true,
         "user" => [
-            "id"    => $_SESSION['user_id'],
-            "name"  => $_SESSION['user_name'],
-            "email" => $_SESSION['user_email'],
-        ],
-        "session" => $_SESSION
+            "id"    => $data->id ?? null,
+            "name"  => $data->name ?? null,
+            "email" => $data->email ?? null,
+        ]
     ]);
 } else {
     echo json_encode([
         "status" => "success",
         "logged_in" => false,
-        "message" => "No user is currently logged in.",
-        "session" => $_SESSION
+        "message" => "No user is currently logged in."
     ]);
 }

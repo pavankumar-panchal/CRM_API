@@ -1,13 +1,8 @@
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import EmailVerification from "./pages/EmailVerification.jsx";
-import Smtp from "./pages/Smtp.jsx";
-import Campaigns from "./pages/Campaigns.jsx";
-import Master from "./pages/Master.jsx";
-import EmailSent from "./pages/monitor/EmailSent.jsx";
-import ReceivedResponse from "./pages/monitor/ReceivedResponse.jsx";
+// Removed unused pages - only keeping verification and auth
 import Navbar from "./components/Navbar.jsx";
 import TopProgressBar from "./components/TopProgressBar.jsx";
-import Workers from "./pages/Workers.jsx";
 import Auth from "./pages/Auth.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 
@@ -36,66 +31,7 @@ function App() {
             )
           }
         />
-        <Route
-          path="/smtp"
-          element={
-            isAuthenticated() ? (
-              <Smtp />
-            ) : (
-              <Navigate to="/auth" replace />
-            )
-          }
-        />
-        <Route
-          path="/campaigns"
-          element={
-            isAuthenticated() ? (
-              <Campaigns />
-            ) : (
-              <Navigate to="/auth" replace />
-            )
-          }
-        />
-        <Route
-          path="/master"
-          element={
-            isAuthenticated() ? (
-              <Master />
-            ) : (
-              <Navigate to="/auth" replace />
-            )
-          }
-        />
-        <Route
-          path="/monitor/email-sent"
-          element={
-            isAuthenticated() ? (
-              <EmailSent />
-            ) : (
-              <Navigate to="/auth" replace />
-            )
-          }
-        />
-        <Route
-          path="/monitor/received-response"
-          element={
-            isAuthenticated() ? (
-              <ReceivedResponse />
-            ) : (
-              <Navigate to="/auth" replace />
-            )
-          }
-        />
-        <Route
-          path="/workers"
-          element={
-            isAuthenticated() ? (
-              <Workers />
-            ) : (
-              <Navigate to="/auth" replace />
-            )
-          }
-        />
+  {/* Only verification and auth routes kept */}
         <Route
           path="/auth"
           element={
@@ -106,14 +42,7 @@ function App() {
             )
           }
         />
-        <Route
-          path="/protected"
-          element={
-            <ProtectedRoute>
-              <Home />
-            </ProtectedRoute>
-          }
-        />
+        
       </Routes>
     </BrowserRouter>
   );

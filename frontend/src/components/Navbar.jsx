@@ -1,25 +1,24 @@
-import React from "react";
+import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-
-const API_BASE = "http://localhost/CRM_API/backend/routes/api.php";
+import api from "../lib/api";
 
 export default function Navbar({ user, setUser }) {
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
-      localStorage.removeItem("jwt_token");
-      await fetch(`${API_BASE}?endpoint=logout`, {
-        method: "POST",
-        credentials: "include",
-      });
-      setUser(null);
-      document.cookie =
-        "user_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-      navigate("/auth");
-    } catch (error) {
-      console.error("Logout failed:", error);
+      // Inform backend (optional). api helper will attach token automatically.
+      await api.post('/routes/api.php?endpoint=logout');
+    } catch {
+      // ignore errors from logout endpoint - we'll clear client state regardless
     }
+  // Clear client state and notify other windows/components
+  localStorage.removeItem('jwt_token');
+  window.dispatchEvent(new Event('logout'));
+  setUser(null);
+  setOpen(false);
+  navigate('/auth');
   };
 
   return (
@@ -32,31 +31,39 @@ export default function Navbar({ user, setUser }) {
             <span className="text-xl font-semibold text-gray-900">Email System</span>
           </div>
 
-          {/* Nav Links */}
-          <div className={user ? "flex justify-center flex-1" : "flex justify-end ml-auto"}>
-            <NavLink
-              to="/"
-              className={({ isActive }) =>
-                `px-4 py-2 rounded-lg text-sm font-medium flex items-center transition-colors duration-200 ${
-                  isActive
-                    ? "bg-blue-100 text-blue-700 font-semibold"
-                    : "text-gray-600 hover:bg-blue-50 hover:text-blue-700"
-                }`
-              }
-            >
-              <i className="fas fa-check-circle mr-2"></i>
-              Verification
-            </NavLink>
+          {/* Desktop Links - show Verification only when authenticated */}
+          <div className="hidden md:flex items-center gap-4">
+            {user ? (
+              <NavLink
+                to="/"
+                className={({ isActive }) =>
+                  `px-4 py-2 rounded-lg text-sm font-medium flex items-center transition-colors duration-200 ${
+                    isActive
+                      ? "bg-blue-100 text-blue-700 font-semibold"
+                      : "text-gray-600 hover:bg-blue-50 hover:text-blue-700"
+                  }`
+                }
+              >
+                <i className="fas fa-check-circle mr-2"></i>
+                Verification
+              </NavLink>
+            ) : null}
+          </div>
+
+          {/* Mobile hamburger */}
+          <div className="md:hidden flex items-center">
+            <button onClick={() => setOpen(!open)} className="p-2 rounded-md">
+              <i className={`fas ${open ? 'fa-times' : 'fa-bars'} text-xl`}></i>
+            </button>
           </div>
 
           {/* User Section */}
-          <div className="flex items-center gap-4">
+          <div className="hidden md:flex items-center gap-4">
             {user ? (
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-50 text-green-800 font-medium border border-green-200 shadow-sm">
                   <i className="fas fa-user text-green-600 text-sm"></i>
                   <span className="text-sm truncate max-w-[150px]">{user.name}</span>
-                  {/* <span className="text-sm truncate max-w-[150px]">{user.email}</span> */}
                 </div>
                 <button
                   onClick={handleLogout}
@@ -66,10 +73,42 @@ export default function Navbar({ user, setUser }) {
                   Logout
                 </button>
               </div>
-            ) : null}
+            ) : (
+              <div>
+                <button onClick={() => navigate('/auth')} className="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100">Sign in</button>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Mobile menu */}
+      {open && (
+        <div className="md:hidden bg-white border-t border-gray-200">
+          <div className="px-4 py-3 flex flex-col gap-2">
+            {!user ? (
+              <button onClick={() => { setOpen(false); navigate('/auth'); }} className="px-3 py-2 rounded hover:bg-gray-100 text-left">Sign in</button>
+            ) : (
+              <div className="space-y-2">
+                <button onClick={() => { setOpen(false); navigate('/'); }} className="px-3 py-2 rounded hover:bg-gray-100 text-left flex items-center gap-2">
+                  <i className="fas fa-check-circle text-gray-600"></i>
+                  Verification
+                </button>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <i className="fas fa-user text-green-600"></i>
+                    <div>
+                      <div className="font-medium">{user.name}</div>
+                      <div className="text-xs text-gray-500">{user.email}</div>
+                    </div>
+                  </div>
+                  <button onClick={handleLogout} className="px-3 py-2 bg-red-600 text-white rounded">Logout</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

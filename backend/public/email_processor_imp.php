@@ -5,7 +5,7 @@ ini_set('max_execution_time', 300); // seconds
 header('Content-Type: application/json');
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, DELETE");
-header("Access-Control-Allow-Headers: Content-Type");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
 require_once __DIR__ . '/../config/db.php';
 
@@ -124,8 +124,20 @@ function handlePostRequest()
 {
     global $conn;
 
+    // Enforce 5 MB upload limit and provide guidance if PHP blocks the upload
+    $maxBytes = 5 * 1024 * 1024; // 5MB
     if (!isset($_FILES['csv_file'])) {
         return ["status" => "error", "message" => "No file uploaded"];
+    }
+    $fileError = $_FILES['csv_file']['error'] ?? UPLOAD_ERR_NO_FILE;
+    if ($fileError !== UPLOAD_ERR_OK) {
+        if (in_array($fileError, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
+            return ["status" => "error", "message" => "Uploaded file too large for server configuration. Increase upload_max_filesize/post_max_size to allow 5 MB uploads."];
+        }
+        return ["status" => "error", "message" => "File upload failed (code: $fileError)"];
+    }
+    if (isset($_FILES['csv_file']['size']) && intval($_FILES['csv_file']['size']) > $maxBytes) {
+        return ["status" => "error", "message" => "Uploaded file exceeds maximum allowed size of 5 MB"];
     }
 
     $file = $_FILES['csv_file']['tmp_name'];
@@ -162,6 +174,7 @@ function handlePostRequest()
 
     $conn->begin_transaction();
 
+    $rowsProcessed = 0;
     while (($data = fgetcsv($handle, 1000, ",")) !== false) {
         if (empty($data[0]))
             continue;
@@ -192,7 +205,15 @@ function handlePostRequest()
             $domain_status = 0;
             $validation_response = "Invalid email format";
             $insertStmt->bind_param("ssssisi", $email, $sp_account, $sp_domain, $domain_verified, $domain_status, $validation_response, $campaignListId);
-            $insertStmt->execute();
+                if (!$insertStmt->execute()) {
+                    $err = $insertStmt->error ?: $conn->error;
+                    $conn->rollback();
+                    if (stripos($err, 'packet') !== false) {
+                        return ["status" => "error", "message" => "Server rejected large packet. Try a smaller file or increase MySQL 'max_allowed_packet'."];
+                    }
+                    return ["status" => "error", "message" => "Insert failed: " . $err];
+                }
+                $rowsProcessed++;
             $invalid_account_count++;
             continue;
         }
@@ -252,6 +273,13 @@ function handlePostRequest()
         }
     }
 
+    if ($rowsProcessed === 0) {
+        $conn->rollback();
+        // delete created csv_list to avoid empty lists
+        $del = $conn->prepare("DELETE FROM csv_list WHERE id = ?");
+        if ($del) { $del->bind_param('i', $campaignListId); $del->execute(); $del->close(); }
+        return ["status" => "error", "message" => "CSV file contained no valid rows. No data was imported."];
+    }
     $conn->commit();
     fclose($handle);
 

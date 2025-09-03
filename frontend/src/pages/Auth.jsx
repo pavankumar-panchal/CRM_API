@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-const API_BASE = "http://localhost/CRM_API/backend/routes/api.php";
+import api from "../lib/api";
 
 const Auth = ({ setUser }) => {
   const [step, setStep] = useState("register"); // "register" or "login"
@@ -30,26 +29,16 @@ const Auth = ({ setUser }) => {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}?endpoint=register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(formData),
-      });
-      const data = await res.json();
-
-      if (data.status === "success") {
-        setStatus({
-          type: "success",
-          message: "Registration successful! Please login.",
-        });
-        setFormData({ email: "", password: "", name: "" });
-        setStep("login");
+      const data = await api.post('/routes/api.php?endpoint=register', formData);
+      if (data.status === 'success') {
+        setStatus({ type: 'success', message: 'Registration successful! Please login.' });
+        setFormData({ email: '', password: '', name: '' });
+        setStep('login');
       } else {
-        setStatus({ type: "error", message: data.message || "Registration failed" });
+        setStatus({ type: 'error', message: data.message || 'Registration failed' });
       }
     } catch (error) {
-      setStatus({ type: "error", message: "Network error" });
+      setStatus({ type: 'error', message: error?.message || 'Network error' });
     } finally {
       setLoading(false);
     }
@@ -66,30 +55,17 @@ const Auth = ({ setUser }) => {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}?endpoint=login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include", // <-- REQUIRED for session cookies!
-        body: JSON.stringify(formData),
-      });
-      const data = await res.json();
-
-      if (data.status === "success") {
-        // Fetch user info after login
-        const userRes = await fetch(`${API_BASE}?endpoint=check-auth`, {
-          credentials: "include",
-        });
-        const userData = await userRes.json();
-        if (userData.status === "success") {
-          setUser(userData.user); // <-- Update user state for Navbar
-        }
-        setStatus({ type: "success", message: "Login successful!" });
-        navigate("/"); // <-- Redirect to main page
+      const data = await api.post('/routes/api.php?endpoint=login', formData);
+      if (data.status === 'success') {
+        if (data.token) localStorage.setItem('jwt_token', data.token);
+        if (data.user) setUser(data.user);
+        setStatus({ type: 'success', message: 'Login successful!' });
+        navigate('/');
       } else {
-        setStatus({ type: "error", message: data.message || "Login failed" });
+        setStatus({ type: 'error', message: data.message || 'Login failed' });
       }
     } catch (error) {
-      setStatus({ type: "error", message: "Network error" });
+      setStatus({ type: 'error', message: error?.message || 'Network error' });
     } finally {
       setLoading(false);
     }

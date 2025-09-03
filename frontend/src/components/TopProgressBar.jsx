@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import api from "../lib/api";
 
 const TopProgressBar = () => {
   const [percent, setPercent] = useState(0);
@@ -7,15 +8,30 @@ const TopProgressBar = () => {
   useEffect(() => {
     let interval = null;
 
+    const handleAuthClear = () => {
+      setActive(false);
+      setPercent(0);
+    };
+
+    const storageHandler = (e) => {
+      if (!e || e.key === 'jwt_token') handleAuthClear();
+    };
+
+    window.addEventListener('storage', storageHandler);
+    window.addEventListener('logout', handleAuthClear);
+
     const fetchProgress = async () => {
+      const token = localStorage.getItem('jwt_token');
+      if (!token) {
+        // not authenticated locally: hide progress
+        handleAuthClear();
+        return;
+      }
       try {
-        const res = await fetch(
-          "http://localhost/CRM_API/backend/includes/progress.php"
-        );
-        const data = await res.json();
+        const data = await api.get('/includes/progress.php');
         if (
           data &&
-          typeof data.percent === "number" &&
+          typeof data.percent === 'number' &&
           data.total > 0 &&
           data.percent < 100
         ) {
@@ -26,15 +42,18 @@ const TopProgressBar = () => {
           setPercent(0);
         }
       } catch {
-        setActive(false);
-        setPercent(0);
+        handleAuthClear();
       }
     };
 
     fetchProgress();
     interval = setInterval(fetchProgress, 2000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', storageHandler);
+      window.removeEventListener('logout', handleAuthClear);
+    };
   }, []);
 
   if (!active) return null;
@@ -51,9 +70,9 @@ const TopProgressBar = () => {
           <span
             className="absolute right-0 mr-2 text-[8.5px] font-bold text-white bg-opacity-90 px-1 py-0.5 rounded-full shadow"
             style={{
-              transform: "translateY(-50%)",
-              top: "50%",
-              whiteSpace: "nowrap"
+              transform: 'translateY(-50%)',
+              top: '50%',
+              whiteSpace: 'nowrap'
             }}
           >
             {percent.toFixed(1)}%

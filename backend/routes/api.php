@@ -1,9 +1,8 @@
 <?php
 // ====== BOOTSTRAP ======
-session_start();
 
-// --- CORS: allow credentials and reflect Origin
-$origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
+// --- CORS: reflect allowed Origin, allow credentials and preflight
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 $allowedOrigins = [
     'http://localhost',
     'http://127.0.0.1',
@@ -13,33 +12,28 @@ $allowedOrigins = [
 ];
 if ($origin && in_array($origin, $allowedOrigins, true)) {
     header("Access-Control-Allow-Origin: $origin");
-    header("Vary: Origin");
-    header("Access-Control-Allow-Credentials: true");
+    header('Vary: Origin');
+    header('Access-Control-Allow-Credentials: true');
+} else {
+    // Fallback to allow all (useful for non-production or when origin not matched)
+    header('Access-Control-Allow-Origin: *');
 }
 
-header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, X-Requested-With");
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, X-Requested-With, Authorization, Accept');
+header('Access-Control-Expose-Headers: Authorization');
+header('Access-Control-Max-Age: 600');
 
-// Handle CORS preflight OPTIONS
+// Handle CORS preflight
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
 
 // Secure session cookie settings
-ini_set('session.cookie_httponly', 1);
-ini_set('session.cookie_secure', 0); // Set to 1 on HTTPS
-ini_set('session.use_strict_mode', 1);
-if (PHP_VERSION_ID >= 70300) {
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'path' => '/',
-        'domain' => '',
-        'secure' => false, // Set to true on HTTPS
-        'httponly' => true,
-        'samesite' => 'Lax'
-    ]);
-}
+
+// Note: sessions removed in favor of JWT-based stateless authentication
+
 
 // ====== HELPERS ======
 function send_json($data, $code = 200) {
@@ -60,20 +54,10 @@ function normalizeEmail($email) {
     return $email;
 }
 
-// Session idle timeout (15 minutes)
-$expire_time = 15 * 60;
-if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $expire_time) {
-    $_SESSION = [];
-    if (ini_get("session.use_cookies")) {
-        $params = session_get_cookie_params();
-        setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
-    }
-    session_destroy();
-} else {
-    $_SESSION['last_activity'] = time();
-}
+// Sessions removed. Use JWT for stateless auth.
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../config/jwt.php';
 
 // ====== ROUTING SETUP ======
 $endpoint = $_GET['endpoint'] ?? null;
@@ -152,20 +136,17 @@ if ($method === 'POST' && $endpoint === 'login') {
         send_json(['status' => 'error', 'message' => 'Invalid credentials'], 401);
     }
 
-    // Set session variables with normalized email
-    session_regenerate_id(true);
-    $_SESSION['user_id'] = $user_id;
-    $_SESSION['user_name'] = $name;
-    $_SESSION['user_email'] = $email_db; // $email_db should be plain, e.g. panchalpavan801@gmail.com
-    $_SESSION['last_activity'] = time();
-
-    // Set cookies with normalized email
-    setcookie("user_name", $name, time() + 86400, "/", "", false, true);
-    setcookie("user_email", $email_db, time() + 86400, "/", "", false, true);
+    // Create JWT token with basic user info
+    $token = create_jwt([
+        'id' => $user_id,
+        'name' => $name,
+        'email' => $email_db
+    ]);
 
     send_json([
         'status' => 'success',
         'message' => 'Login successful',
+        'token' => $token,
         'user' => [
             'id' => $user_id,
             'name' => $name,
@@ -177,31 +158,23 @@ if ($method === 'POST' && $endpoint === 'login') {
 
 // --- Check auth
 if ($method === 'GET' && $endpoint === 'check-auth') {
-    if (!isset($_SESSION['user_id'])) {
-        send_json(['status' => 'error', 'message' => 'Not authenticated'], 200);
+    $data = decode_jwt_from_header();
+    if (!$data) {
+        send_json(['status' => 'error', 'message' => 'Not authenticated'], 401);
     } else {
-        send_json([
-            'status' => 'success',
-            'user' => [
-                'id' => $_SESSION['user_id'],
-                'name' => $_SESSION['user_name'],
-                'email' => $_SESSION['user_email'],
-            ]
-        ]);
+        send_json(['status' => 'success', 'user' => [
+            'id' => $data->id ?? null,
+            'name' => $data->name ?? null,
+            'email' => $data->email ?? null,
+        ]]);
     }
 }
 
 // --- Logout
 if ($method === 'POST' && $endpoint === 'logout') {
-    setcookie("user_name", "", time() - 3600, "/");
-    setcookie("user_email", "", time() - 3600, "/");
-    $_SESSION = [];
-    if (ini_get("session.use_cookies")) {
-        $params = session_get_cookie_params();
-        setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
-    }
-    session_destroy();
-    send_json(['status' => 'success', 'message' => 'Logged out']);
+    // For JWT stateless auth, logout is handled client-side by deleting the token.
+    // Optionally implement a token blacklist in DB to invalidate tokens before expiry.
+    send_json(['status' => 'success', 'message' => 'Logged out (client should delete stored token)']);
 }
 
 // --- Routes (Authentication Removed)

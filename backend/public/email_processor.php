@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/../config/jwt.php';
 
 header('Content-Type: application/json');
 
@@ -18,7 +18,7 @@ if ($origin && in_array($origin, $allowedOrigins, true)) {
     header("Access-Control-Allow-Credentials: true");
 }
 header("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, X-Requested-With");
+header("Access-Control-Allow-Headers: Content-Type, X-Requested-With, Authorization");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -35,24 +35,33 @@ function debug_log($msg) {
     file_put_contents(__DIR__ . '/../storage/email_processor_debug.log', "[" . date('Y-m-d H:i:s') . "] $msg\n", FILE_APPEND);
 }
 
-// Fetch and verify user from session
-$user_id = isset($_SESSION['user_id']) ? intval($_SESSION['user_id']) : 0;
-$user_name = $_SESSION['user_name'] ?? '';
-$user_email = $_SESSION['user_email'] ?? '';
-
-// Log session data for debugging
-debug_log('Session user_id: ' . $user_id);
-debug_log('Session user_name: ' . $user_name);
-debug_log('Session user_email: ' . $user_email);
-
-// Verify user against database
-if ($user_id <= 0 || empty($user_email)) {
-    debug_log('Invalid or missing user_id or user_email in session');
+// Fetch and verify user from JWT
+$jwtData = decode_jwt_from_header();
+if (!$jwtData) {
+    debug_log('Missing or invalid JWT token');
     ob_clean();
     echo json_encode([
         "status" => "error",
-        "message" => "Invalid or missing session data",
-        "session" => $_SESSION
+        "message" => "Authentication required"
+    ]);
+    exit;
+}
+$user_id = isset($jwtData->id) ? intval($jwtData->id) : 0;
+$user_name = $jwtData->name ?? '';
+$user_email = $jwtData->email ?? '';
+
+// Log JWT data for debugging
+debug_log('JWT user_id: ' . $user_id);
+debug_log('JWT user_name: ' . $user_name);
+debug_log('JWT user_email: ' . $user_email);
+
+// Verify user against database
+if ($user_id <= 0 || empty($user_email)) {
+    debug_log('Invalid or missing user data in JWT');
+    ob_clean();
+    echo json_encode([
+        "status" => "error",
+        "message" => "Invalid token data"
     ]);
     exit;
 }
@@ -171,9 +180,27 @@ function normalizeGmail($email) {
 }
 
 function handlePostRequest($conn, $user_id, $user_name, $user_email) {
-    if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
-        debug_log('No valid file uploaded');
-        return ["status" => "error", "message" => "No valid file uploaded"];
+    // Enforce maximum upload size (5 MB) at application level
+    $maxBytes = 5 * 1024 * 1024; // 5 MB
+    if (!isset($_FILES['csv_file'])) {
+        debug_log('No file part in upload');
+        return ["status" => "error", "message" => "No file uploaded"];
+    }
+
+    $fileError = $_FILES['csv_file']['error'] ?? UPLOAD_ERR_NO_FILE;
+    if ($fileError !== UPLOAD_ERR_OK) {
+        // If PHP rejected the upload because of ini settings, return useful guidance
+        if (in_array($fileError, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
+            debug_log('Upload rejected by PHP ini limits; error code: ' . $fileError);
+            return ["status" => "error", "message" => "Uploaded file too large for server configuration. Increase upload_max_filesize/post_max_size to allow 5 MB uploads."];
+        }
+        debug_log('File upload error code: ' . $fileError);
+        return ["status" => "error", "message" => "File upload failed (code: $fileError)"];
+    }
+
+    if (isset($_FILES['csv_file']['size']) && intval($_FILES['csv_file']['size']) > $maxBytes) {
+        debug_log('Uploaded file exceeds maximum allowed size: ' . intval($_FILES['csv_file']['size']));
+        return ["status" => "error", "message" => "Uploaded file exceeds maximum allowed size of 5 MB"];
     }
 
     $file = $_FILES['csv_file']['tmp_name'];
@@ -301,22 +328,70 @@ function handlePostRequest($conn, $user_id, $user_name, $user_email) {
         $inserted_count++;
     }
 
+    // If no rows were collected, rollback and delete the csv_list record to avoid empty lists
+    $totalRowsCollected = $inserted_count + $invalid_account_count + $excluded_count;
+    if ($totalRowsCollected === 0) {
+        $conn->rollback();
+        // Remove the previously created list since nothing useful was inserted
+        $del = $conn->prepare("DELETE FROM csv_list WHERE id = ? AND user_id = ?");
+        if ($del) {
+            $del->bind_param('ii', $campaignListId, $user_id);
+            $del->execute();
+            $del->close();
+        }
+        debug_log('CSV upload contained no valid rows, list deleted: ' . $campaignListId);
+        return ["status" => "error", "message" => "CSV file contained no valid rows. No data was imported."];
+    }
+
     if (!empty($bulkInsertValues)) {
-        $query = $bulkInsertQuery . implode(",", $bulkInsertValues);
-        $stmt = $conn->prepare($query);
-        if (!$stmt) {
-            $conn->rollback();
-            debug_log('Failed to prepare bulk insert: ' . $conn->error);
-            return ["status" => "error", "message" => "Failed to prepare bulk insert: " . $conn->error];
+        // Chunk inserts to avoid exceeding MySQL max_allowed_packet
+        $rows = count($bulkInsertValues);
+        $paramsPerRow = 9; // number of parameters per row in our VALUES
+        $chunkSize = 200; // rows per chunk; safe default for production
+
+        // helper to get refs for bind_param
+        $makeRefs = function (&$arr) {
+            $refs = [];
+            foreach ($arr as $key => $value) {
+                $refs[$key] = &$arr[$key];
+            }
+            return $refs;
+        };
+
+        for ($offset = 0; $offset < $rows; $offset += $chunkSize) {
+            $chunkValues = array_slice($bulkInsertValues, $offset, $chunkSize);
+            $chunkParams = array_slice($bulkInsertParams, $offset * $paramsPerRow, count($chunkValues) * $paramsPerRow);
+
+            $query = $bulkInsertQuery . implode(",", $chunkValues);
+            $stmt = $conn->prepare($query);
+            if (!$stmt) {
+                $conn->rollback();
+                debug_log('Failed to prepare chunked bulk insert: ' . $conn->error);
+                return ["status" => "error", "message" => "Failed to prepare insert: " . $conn->error];
+            }
+
+            $types = str_repeat("isssiiisi", count($chunkValues));
+            $bindParams = array_merge([$types], $chunkParams);
+            $refs = $makeRefs($bindParams);
+
+            if (!call_user_func_array([$stmt, 'bind_param'], $refs)) {
+                $conn->rollback();
+                debug_log('bind_param failed: ' . $stmt->error);
+                return ["status" => "error", "message" => "Failed to bind parameters: " . $stmt->error];
+            }
+
+            if (!$stmt->execute()) {
+                // Check for max_allowed_packet style error and return a friendly message
+                $err = $stmt->error ?: $conn->error;
+                $conn->rollback();
+                debug_log('Chunk execute failed: ' . $err);
+                if (stripos($err, 'packet') !== false) {
+                    return ["status" => "error", "message" => "Server rejected large packet. Try uploading a smaller file or increase MySQL 'max_allowed_packet' setting." ];
+                }
+                return ["status" => "error", "message" => "Bulk insert failed: " . $err];
+            }
+            $stmt->close();
         }
-        $types = str_repeat("isssiiisi", count($bulkInsertValues));
-        $stmt->bind_param($types, ...$bulkInsertParams);
-        if (!$stmt->execute()) {
-            $conn->rollback();
-            debug_log('Bulk insert failed: ' . $stmt->error);
-            return ["status" => "error", "message" => "Bulk insert failed: " . $stmt->error];
-        }
-        $stmt->close();
     }
 
     $conn->commit();
@@ -350,18 +425,37 @@ function handlePostRequest($conn, $user_id, $user_name, $user_email) {
         $stmt->close();
 
         $totalEmails = count($emails);
-        $batchSize = ceil($totalEmails / $workerCount);
-        $emailIndex = 0;
-        foreach ($workers as $worker) {
-            $assignedEmails = array_slice($emails, $emailIndex, $batchSize);
-            if (count($assignedEmails) > 0) {
-                $ids = implode(',', array_map('intval', $assignedEmails));
-                $stmt = $conn->prepare("UPDATE emails SET worker_id = ? WHERE id IN ($ids) AND user_id = ?");
-                $stmt->bind_param("ii", $worker['id'], $user_id);
-                $stmt->execute();
-                $stmt->close();
+        if ($totalEmails > 0) {
+            $batchSize = ceil($totalEmails / $workerCount);
+            $emailIndex = 0;
+            foreach ($workers as $worker) {
+                $assignedEmails = array_slice($emails, $emailIndex, $batchSize);
+                if (count($assignedEmails) > 0) {
+                    $ids = implode(',', array_map('intval', $assignedEmails));
+                    $stmt = $conn->prepare("UPDATE emails SET worker_id = ? WHERE id IN ($ids) AND user_id = ?");
+                    if ($stmt) {
+                        $stmt->bind_param("ii", $worker['id'], $user_id);
+                        $stmt->execute();
+                        $stmt->close();
+                    } else {
+                        debug_log('Failed to prepare update for worker assignment: ' . $conn->error);
+                    }
+                }
+                $emailIndex += $batchSize;
             }
-            $emailIndex += $batchSize;
+        }
+    } else {
+        // No configured workers: default to worker id 1
+        $defaultWorkerId = 1;
+        $stmt = $conn->prepare("UPDATE emails SET worker_id = ? WHERE csv_list_id = ? AND user_id = ? AND worker_id IS NULL");
+        if ($stmt) {
+            $stmt->bind_param("iii", $defaultWorkerId, $campaignListId, $user_id);
+            $stmt->execute();
+            $affected = $stmt->affected_rows;
+            $stmt->close();
+            debug_log("No workers configured — assigned $affected emails to default worker_id=$defaultWorkerId");
+        } else {
+            debug_log('Failed to assign default worker id: ' . $conn->error);
         }
     }
 

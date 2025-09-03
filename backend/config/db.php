@@ -13,4 +13,11 @@ if ($conn->connect_error) {
     echo json_encode(['status' => 'error', 'message' => 'Database connection failed']);
     exit;
 }
+
+// JWT configuration - change the secret to a strong value in production
+$jwt_config = [
+    'secret' => 'change_this_to_a_strong_secret',
+    'issuer' => 'CRM_API',
+    'expire' => 24 * 60 * 60 // 1 day
+];
 ?>

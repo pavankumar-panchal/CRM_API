@@ -1,11 +1,12 @@
 <?php
-session_start();
+require_once __DIR__ . '/../config/jwt.php';
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-$origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
+// CORS: reflect allowed Origin, allow credentials and preflight
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 $allowedOrigins = [
     'http://localhost',
     'http://127.0.0.1',
@@ -15,28 +16,29 @@ $allowedOrigins = [
 ];
 if ($origin && in_array($origin, $allowedOrigins, true)) {
     header("Access-Control-Allow-Origin: $origin");
-    header("Vary: Origin");
-    header("Access-Control-Allow-Credentials: true");
+    header('Vary: Origin');
+    header('Access-Control-Allow-Credentials: true');
+} else {
+    header('Access-Control-Allow-Origin: *');
 }
-header('Content-Type: application/json');
-header("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, X-Requested-With");
 
-// Handle preflight OPTIONS
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
+header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, X-Requested-With, Authorization, Accept');
+header('Access-Control-Expose-Headers: Authorization');
+header('Access-Control-Max-Age: 600');
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
+
+header('Content-Type: application/json');
 
 require_once __DIR__ . '/../config/db.php';
 
-// Get user_id from session
-$user_id = isset($_SESSION['user_id']) ? intval($_SESSION['user_id']) : 0;
+// Get user_id from JWT
+$jwtData = decode_jwt_from_header();
+$user_id = isset($jwtData->id) ? intval($jwtData->id) : 0;
 if ($user_id <= 0) {
     echo json_encode([
         "status" => "error",
-        "message" => "Not authenticated",
-        "session" => $_SESSION
+        "message" => "Not authenticated"
     ]);
     exit;
 }

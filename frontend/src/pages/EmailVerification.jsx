@@ -1,12 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import EmailsList from "./EmailsList";
 import { v4 as uuidv4 } from "uuid";
-
-const API_BASE = "http://localhost/CRM_API/backend/routes/api.php";
-
-// Always use credentials: "include"
-const fetchWithSession = (url, options = {}) =>
-  fetch(url, { ...options, credentials: "include" });
+import api from "../lib/api";
 
 const checkRetryProgress = async () => {
   try {
@@ -73,8 +68,7 @@ const EmailVerification = () => {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const res = await fetchWithSession(`${API_BASE}?endpoint=check-auth`);
-        const data = await res.json();
+  const data = await api.get('/routes/api.php?endpoint=check-auth');
         if (data.status === "success") {
           setUser(data.user);
         } else {
@@ -96,15 +90,8 @@ const EmailVerification = () => {
         search: listPagination.search,
       });
 
-      const res = await fetch(
-        `http://localhost/CRM_API/backend/includes/get_csv_list.php?${params}`,
-        {
-          credentials: "include", 
-        }
-      );
-      const data = await res.json();
-
-      setLists(Array.isArray(data.data) ? data.data : []);
+  const data = await api.get(`/includes/get_csv_list.php?${params}`);
+  setLists(Array.isArray(data.data) ? data.data : []);
       console.log("Fetched lists:", data.data); // <-- Debug log
       setListPagination((prev) => ({ ...prev, total: data.total || 0 }));
     } catch (error) {
@@ -118,10 +105,7 @@ const EmailVerification = () => {
   // Fetch retry failed count
   const fetchRetryFailedCount = async () => {
     try {
-      const res = await fetch(
-        "http://localhost/CRM_API/backend/includes/get_results.php?retry_failed=1"
-      );
-      const data = await res.json();
+  const data = await api.get('/includes/get_results.php?retry_failed=1');
       if (data.status === "success") {
         setRetryFailedCount(data.total);
         // setStatus({ type: "success", message: data.message });
@@ -193,15 +177,8 @@ const EmailVerification = () => {
     formDataObj.append("file_name", formData.fileName);
 
     try {
-      setLoading(true);
-      const res = await fetchWithSession(
-        "http://localhost/CRM_API/backend/routes/api.php/api/upload",
-        {
-          method: "POST",
-          body: formDataObj,
-        }
-      );
-      const data = await res.json();
+  setLoading(true);
+  const data = await api.postForm('/routes/api.php/api/upload', formDataObj);
 
       if (data.status === "success") {
         setStatus({
@@ -226,11 +203,10 @@ const EmailVerification = () => {
 
   const exportEmails = async (type, listId) => {
     try {
-      const url = `http://localhost/CRM_API/backend/includes/get_results.php?export=${type}&csv_list_id=${listId}`;
-      const res = await fetch(url);
-      const blob = await res.blob();
-
-      const downloadUrl = window.URL.createObjectURL(blob);
+  const text = await api.request(`/includes/get_results.php?export=${type}&csv_list_id=${listId}`);
+  // api.request returns text for non-json responses
+  const blob = new Blob([text], { type: 'text/csv' });
+  const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
       link.download = `${type}_emails_list_${listId}.csv`;
@@ -249,8 +225,7 @@ const EmailVerification = () => {
 
     progressInterval.current = setInterval(async () => {
       try {
-        const res = await fetch("/api/verify/progress");
-        const data = await res.json();
+  const data = await api.get('/includes/progress.php');
         setProgress(data);
 
         fetchLists();
@@ -365,10 +340,7 @@ const EmailVerification = () => {
       await fetchRetryFailedCount();
 
       // Start by checking how many need retry
-      const resCount = await fetch(
-        "http://localhost/CRM_API/backend/includes/get_results.php?retry_failed=1"
-      );
-      const countData = await resCount.json();
+  const countData = await api.get('/includes/get_results.php?retry_failed=1');
 
       if (countData.total === 0) {
         setStatus({ type: "error", message: "No failed emails to retry" });
@@ -377,11 +349,7 @@ const EmailVerification = () => {
       }
 
       // Start the retry process
-      const resStart = await fetch(
-        "http://localhost/CRM_API/backend/routes/api.php/api/retry-failed",
-        { method: "POST" }
-      );
-      const startData = await resStart.json();
+  const startData = await api.post('/routes/api.php/api/retry-failed');
 
       if (startData.status !== "success") {
         throw new Error(startData.message || "Failed to start retry");
@@ -421,10 +389,7 @@ const EmailVerification = () => {
 
     try {
       // Fetch failed count for this list
-      const resCount = await fetch(
-        `http://localhost/CRM_API/backend/includes/get_results.php?retry_failed=1&csv_list_id=${listId}`
-      );
-      const countData = await resCount.json();
+  const countData = await api.get(`/includes/get_results.php?retry_failed=1&csv_list_id=${listId}`);
 
       if (!countData.total || countData.total === 0) {
         setStatus({ type: "error", message: "No failed emails to retry for this list" });
@@ -433,11 +398,7 @@ const EmailVerification = () => {
       }
 
       // Start retry for this list
-      const resStart = await fetch(
-        `http://localhost/CRM_API/backend/includes/retry_smtp.php?csv_list_id=${listId}`,
-        { method: "POST" }
-      );
-      const startData = await resStart.json();
+  const startData = await api.post(`/includes/retry_smtp.php?csv_list_id=${listId}`);
 
       if (startData.status !== "success") {
         throw new Error(startData.message || "Failed to start retry");

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import api from "../lib/api";
 
 const EmailsList = ({ listId, onClose }) => {
   const [listEmails, setListEmails] = useState([]);
@@ -14,14 +15,8 @@ const EmailsList = ({ listId, onClose }) => {
   // Fetch email details for the given listId
   const fetchListEmails = async () => {
     try {
-      setLoading(true);
-      const res = await fetch(
-        `http://localhost/CRM_API/backend/routes/api.php/api/results?csv_list_id=${listId}&limit=1000000`,
-        {
-          credentials: "include", // <-- Ensure session is sent!
-        }
-      );
-      const data = await res.json();
+  setLoading(true);
+  const data = await api.get(`/routes/api.php/api/results?csv_list_id=${listId}&limit=1000000`);
       setListEmails(Array.isArray(data.data) ? data.data : []);
       setPagination((prev) => ({
         ...prev,
@@ -367,7 +362,12 @@ const EmailsList = ({ listId, onClose }) => {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                      {email.validation_response || "N/A"}
+                      {(() => {
+                        const raw = email.validation_response;
+                        const r = (raw === null || raw === undefined) ? '' : String(raw).trim();
+                        if (!r || r === '0' || /^(?:not\s+verified(?:\s+yet)?)$/i.test(r)) return 'Not Verified';
+                        return r;
+                      })()}
                     </td>
                   </tr>
                 ))

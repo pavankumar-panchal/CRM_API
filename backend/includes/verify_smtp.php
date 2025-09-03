@@ -13,7 +13,7 @@ header("Access-Control-Allow-Methods: GET");
 $servername = "127.0.0.1";
 $username = "root"; 
 $password = "";
-$dbname = "CRM";
+$dbname = "CRM_API";
 
 // Create main connection
 $conn = new mysqli($servername, $username, $password, $dbname);
@@ -37,7 +37,7 @@ if ($conn_logs->connect_error) {
 // Configuration
 define('MAX_WORKERS', 200);
 define('EMAILS_PER_WORKER', 500);
-define('WORKER_SCRIPT', __DIR__ . '/smtp_worker.php');
+define('WORKER_SCRIPT', __DIR__ . '/smtp_worker2.php');
 define('LOG_FILE', __DIR__ . '/../storage/smtp_parallel.log');
 
 set_time_limit(0);
@@ -50,7 +50,7 @@ if (!file_exists(WORKER_SCRIPT)) {
 $servername = "127.0.0.1";
 $username = "root";
 $password = "";
-$dbname = "CRM";
+$dbname = "CRM_API";
 
 $conn = new mysqli($servername, $username, $password, $dbname);
 $conn->set_charset("utf8mb4");
@@ -65,7 +65,7 @@ $conn_logs = new mysqli($log_db_host, $log_db_user, $log_db_pass, $log_db_name);
 $conn_logs->set_charset("utf8mb4");
 if ($conn_logs->connect_error) exit(1);
 
-define('WORKER_ID', 1); // Set worker id here
+define('WORKER_ID', 2); // Set worker id here
 
 // Get ID list from argument
 $id_list = isset($argv[1]) ? $argv[1] : '';
@@ -315,14 +315,31 @@ function get_all_email_ids($conn)
 // --- Split IDs into N workers ---
 function split_ids($ids, $num_workers)
 {
-    $chunks = array_chunk($ids, ceil(count($ids) / $num_workers));
-    return $chunks;
+    $total = count($ids);
+
+    // Prevent divide-by-zero or invalid chunking
+    if ($total === 0 || $num_workers <= 0) {
+        return [];  // Nothing to process
+    }
+
+    $chunk_size = ceil($total / $num_workers);
+    if ($chunk_size <= 0) {
+        return [$ids]; // fallback (shouldn’t happen)
+    }
+
+    return array_chunk($ids, $chunk_size);
 }
+
 
 // --- Parallel SMTP processing ---
 function process_in_parallel($conn)
 {
     $ids = get_all_email_ids($conn);
+    if (empty($ids)) {
+    write_log("No emails found to process.");
+    return 0; // or return early
+}
+
     $num_workers = MAX_WORKERS;
     $chunks = split_ids($ids, $num_workers);
     $active_procs = [];
@@ -411,6 +428,8 @@ try {
     $invalid  = $conn->query("SELECT COUNT(*) as invalid FROM emails WHERE domain_status = 0")->fetch_row()[0];
 
     // Update csv_list with valid and invalid counts (safe, as values are integers)
+    $conn->query("UPDATE csv_list SET valid_count = $verified, invalid_count = $invalid WHERE status IN ('running', 'completed')");
+   
     update_all_csv_list_stats($conn);
 
     echo json_encode([
