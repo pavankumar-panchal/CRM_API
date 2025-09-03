@@ -2,33 +2,23 @@
 // ====== BOOTSTRAP ======
 session_start();
 
-// --- CORS: allow credentials and reflect Origin (no "*")
+// --- CORS: allow credentials and reflect Origin
 $origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
-if ($origin) {
-    // Allow localhost origins; add others as needed
-    $allowedOrigins = [
-        'http://localhost',
-        'http://127.0.0.1',
-        'http://localhost:3000',
-        'http://localhost:5173', // Vite default
-        'http://localhost:8080',
-    ];
-    if (in_array($origin, $allowedOrigins, true)) {
-        header("Access-Control-Allow-Origin: $origin");
-        header("Vary: Origin");
-        header("Access-Control-Allow-Credentials: true");
-    }
-} else {
-    // Fallback (no Origin). It's safe to omit ACAO then.
-    // header("Access-Control-Allow-Origin: *"); // DON'T use * with credentials
+$allowedOrigins = [
+    'http://localhost',
+    'http://127.0.0.1',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:8080',
+];
+if ($origin && in_array($origin, $allowedOrigins, true)) {
+    header("Access-Control-Allow-Origin: $origin");
+    header("Vary: Origin");
+    header("Access-Control-Allow-Credentials: true");
 }
 
-header("Access-Control-Allow-Credentials: true");
-// header("Access-Control-Allow-Origin: http://localhost:3000"); // or your frontend origin
-
-header('Content-Type: application/json');
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+header("Access-Control-Allow-Headers: Content-Type, X-Requested-With");
 
 // Handle CORS preflight OPTIONS
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -36,18 +26,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// --- Secure session cookie settings (OK for localhost)
-// NOTE: On HTTPS, set secure=1 and SameSite=None
+// Secure session cookie settings
 ini_set('session.cookie_httponly', 1);
-ini_set('session.cookie_secure', 0); // 1 only on HTTPS
+ini_set('session.cookie_secure', 0); // Set to 1 on HTTPS
 ini_set('session.use_strict_mode', 1);
 if (PHP_VERSION_ID >= 70300) {
-    // SameSite=Lax works well for same-site localhost (ports don't matter for SameSite)
     session_set_cookie_params([
         'lifetime' => 0,
         'path' => '/',
-        'domain' => '',       // default host
-        'secure' => false,    // true on HTTPS
+        'domain' => '',
+        'secure' => false, // Set to true on HTTPS
         'httponly' => true,
         'samesite' => 'Lax'
     ]);
@@ -56,70 +44,53 @@ if (PHP_VERSION_ID >= 70300) {
 // ====== HELPERS ======
 function send_json($data, $code = 200) {
     http_response_code($code);
+    header('Content-Type: application/json');
     echo json_encode($data);
     exit;
 }
 
+// Function to normalize email (decode %40 and fix gamil.com typo)
+function normalizeEmail($email) {
+    // Decode URL-encoded characters (e.g., %40 to @)
+    $email = urldecode(trim($email));
+    // Fix gamil.com typo to gmail.com
+    if (stripos($email, '@gamil.com') !== false) {
+        $email = str_ireplace('@gamil.com', '@gmail.com', $email);
+    }
+    return $email;
+}
+
 // Session idle timeout (15 minutes)
 $expire_time = 15 * 60;
-if (isset($_SESSION['user_id'])) {
-    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $expire_time) {
-        $_SESSION = [];
-        if (ini_get("session.use_cookies")) {
-            $params = session_get_cookie_params();
-            setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
-        }
-        session_destroy();
-    } else {
-        $_SESSION['last_activity'] = time();
+if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $expire_time) {
+    $_SESSION = [];
+    if (ini_get("session.use_cookies")) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
     }
+    session_destroy();
+} else {
+    $_SESSION['last_activity'] = time();
 }
 
 require_once __DIR__ . '/../config/db.php';
 
-// ====== OPTIONAL JWT (kept because your other routes use it) ======
-$secretKey = 'f5c8b8b96a818f7e8ef8ad19ea5bf94c459a8bdbe364fe3459703fcc6297baf5de88aa0dfb7be5898d029c16dd16e40f37532e925a1d7f8f3c4b8b4af71763bb';
-
-require_once __DIR__ . '/../vendor/firebase/php-jwt/src/JWT.php';
-require_once __DIR__ . '/../vendor/firebase/php-jwt/src/Key.php';
-
-use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
-
-function validate_jwt_token($jwt, $secretKey) {
-    try {
-        return JWT::decode($jwt, new Key($secretKey, 'HS256'));
-    } catch (Exception $e) {
-        send_json(['error' => 'Invalid or expired token'], 401);
-    }
-}
-function authenticate($secretKey) {
-    $headers = function_exists('getallheaders') ? getallheaders() : [];
-    if (empty($headers['Authorization'])) {
-        send_json(['error' => 'Missing token'], 401);
-    }
-    $jwt = str_replace('Bearer ', '', $headers['Authorization']);
-    return validate_jwt_token($jwt, $secretKey);
-}
-
 // ====== ROUTING SETUP ======
-// Support both styles: ?endpoint=... and /api/...
 $endpoint = $_GET['endpoint'] ?? null;
-
 $fullPath = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$basePath = str_replace('\\', '/', $_SERVER['SCRIPT_NAME']); // /CRM_API/backend/routes/api.php
-$request  = str_replace($basePath, '', $fullPath);           // e.g., "/api/login"
-$request  = preg_replace('/\?.*/', '', $request);
-$request  = rtrim($request, '/');
-$method   = $_SERVER['REQUEST_METHOD'];
+$basePath = str_replace('\\', '/', $_SERVER['SCRIPT_NAME']);
+$request = str_replace($basePath, '', $fullPath);
+$request = preg_replace('/\?.*/', '', $request);
+$request = rtrim($request, '/');
+$method = $_SERVER['REQUEST_METHOD'];
 
 // ====== ENDPOINTS ======
 
-// --- Registration (query-param style only, as you had)
-if ($method === 'POST' && ($endpoint ?? '') === 'register') {
+// --- Registration
+if ($method === 'POST' && $endpoint === 'register') {
     $input = json_decode(file_get_contents('php://input'), true);
     $name = trim($input['name'] ?? '');
-    $email = trim($input['email'] ?? '');
+    $email = normalizeEmail($input['email'] ?? '');
     $password = $input['password'] ?? '';
 
     if (!$name || !$email || !$password) {
@@ -146,118 +117,131 @@ if ($method === 'POST' && ($endpoint ?? '') === 'register') {
     } else {
         send_json(['status' => 'error', 'message' => 'Registration failed'], 500);
     }
+    $stmt->close();
 }
 
-// --- Login (supports both ?endpoint=login and /api/login)
-if ($method === 'POST' && ($endpoint ?? '') === 'login') {
+// --- Login
+if ($method === 'POST' && $endpoint === 'login') {
     $input = json_decode(file_get_contents('php://input'), true);
-    $email = trim($input['email'] ?? '');
+    $email = normalizeEmail($input['email'] ?? '');
     $password = $input['password'] ?? '';
 
+    if (!$email || !$password) {
+        send_json(['status' => 'error', 'message' => 'Email and password are required'], 400);
+    }
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         send_json(['status' => 'error', 'message' => 'Invalid email format'], 400);
     }
 
+    // Fetch user ID, name, email, and password where email matches
     $stmt = $conn->prepare("SELECT id, name, email, password FROM users WHERE email = ?");
     $stmt->bind_param("s", $email);
     $stmt->execute();
-    $stmt->store_result();
-    if ($stmt->num_rows === 0) {
+    $result = $stmt->get_result();
+    if ($result->num_rows === 0) {
         send_json(['status' => 'error', 'message' => 'Invalid credentials'], 401);
     }
-    $stmt->bind_result($id, $name, $email_db, $hashed);
-    $stmt->fetch();
+
+    $user = $result->fetch_assoc();
+    $user_id = $user['id'];
+    $name = $user['name'];
+    $email_db = $user['email'];
+    $hashed = $user['password'];
 
     if (!password_verify($password, $hashed)) {
         send_json(['status' => 'error', 'message' => 'Invalid credentials'], 401);
     }
 
-    // Regenerate session ID for fixation protection
+    // Set session variables with normalized email
     session_regenerate_id(true);
-
-    // Persist user to session
-    $_SESSION['user_id'] = $id;
+    $_SESSION['user_id'] = $user_id;
     $_SESSION['user_name'] = $name;
-    $_SESSION['user_email'] = $email_db;
+    $_SESSION['user_email'] = $email_db; // $email_db should be plain, e.g. panchalpavan801@gmail.com
     $_SESSION['last_activity'] = time();
 
-    // Set cookies for username and email (expires in 1 day)
-    setcookie("user_name", $name, time() + 86400, "/");
-    setcookie("user_email", $email_db, time() + 86400, "/");
+    // Set cookies with normalized email
+    setcookie("user_name", $name, time() + 86400, "/", "", false, true);
+    setcookie("user_email", $email_db, time() + 86400, "/", "", false, true);
 
-    send_json(['status' => 'success', 'message' => 'Login successful']);
-}
-
-// --- Check auth (supports both ?endpoint=check-auth and /api/check-auth)
-if ($method === 'GET' && ($endpoint ?? '') === 'check-auth') {
-    if (!isset($_SESSION['user_id'])) {
-        send_json(['status' => 'error', 'message' => 'Not authenticated'], 200);
-    }
     send_json([
         'status' => 'success',
+        'message' => 'Login successful',
         'user' => [
-            'id'    => $_SESSION['user_id'],
-            'name'  => $_SESSION['user_name'],
-            'email' => $_SESSION['user_email'],
+            'id' => $user_id,
+            'name' => $name,
+            'email' => $email_db
         ]
     ]);
+    $stmt->close();
 }
 
-// --- Logout (supports both ?endpoint=logout and /api/logout)
-if ($method === 'POST' && ($endpoint ?? '') === 'logout') {
+// --- Check auth
+if ($method === 'GET' && $endpoint === 'check-auth') {
+    if (!isset($_SESSION['user_id'])) {
+        send_json(['status' => 'error', 'message' => 'Not authenticated'], 200);
+    } else {
+        send_json([
+            'status' => 'success',
+            'user' => [
+                'id' => $_SESSION['user_id'],
+                'name' => $_SESSION['user_name'],
+                'email' => $_SESSION['user_email'],
+            ]
+        ]);
+    }
+}
+
+// --- Logout
+if ($method === 'POST' && $endpoint === 'logout') {
     setcookie("user_name", "", time() - 3600, "/");
     setcookie("user_email", "", time() - 3600, "/");
+    $_SESSION = [];
+    if (ini_get("session.use_cookies")) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+    }
     session_destroy();
     send_json(['status' => 'success', 'message' => 'Logged out']);
 }
 
-// ====== YOUR EXISTING PROTECTED/JWT ROUTES ======
+// --- Routes (Authentication Removed)
 try {
     switch (true) {
         case ($request === '/api/upload'):
-            // authenticate($secretKey);
             require __DIR__ . '/../public/email_processor.php';
             break;
 
         case ($request === '/api/results'):
-            // authenticate($secretKey);
             require __DIR__ . '/../includes/get_results.php';
             break;
 
         case ($request === '/api/monitor/campaigns' && $method === 'GET'):
-            // authenticate($secretKey);
             require __DIR__ . '/../includes/monitor_campaigns.php';
             break;
 
         case ($request === '/api/master/campaigns'):
-            // authenticate($secretKey);
             require __DIR__ . '/../includes/campaign.php';
             break;
 
         case ($request === '/api/master/campaigns_master'):
-            // authenticate($secretKey);
             require __DIR__ . '/../public/campaigns_master.php';
             break;
 
         case ($request === '/api/master/smtps'):
-            // authenticate($secretKey);
             require __DIR__ . '/../includes/master_smtps.php';
             break;
 
         case ($request === '/api/master/distribution'):
-            // authenticate($secretKey);
             require __DIR__ . '/../includes/campaign_distribution.php';
             break;
 
         case ($request === '/api/retry-failed' && $method === 'POST'):
-            // authenticate($secretKey);
             $cmd = 'php ' . escapeshellarg(__DIR__ . '/../includes/retry_smtp.php') . ' > /dev/null 2>&1 &';
             exec($cmd);
             send_json(['status' => 'success', 'message' => 'Retry process started in background.']);
             break;
 
         case ($request === '/api/master/email-counts'):
-            // authenticate($secretKey);
             $result = $conn->query("
                 SELECT
                     COUNT(*) AS total_valid,
@@ -271,46 +255,38 @@ try {
             $row = $result->fetch_assoc();
             send_json([
                 'total_valid' => (int)$row['total_valid'],
-                'pending'     => (int)$row['pending'],
-                'sent'        => (int)$row['sent'],
-                'failed'      => (int)$row['failed'],
+                'pending' => (int)$row['pending'],
+                'sent' => (int)$row['sent'],
+                'failed' => (int)$row['failed'],
             ]);
             break;
 
         case ($request === '/api/workers'):
-            // authenticate($secretKey);
             require __DIR__ . '/../includes/workers.php';
             break;
 
-        case ($request === '/api/received-response'):
-        case ($request === '/api/emails'):
-        case (strpos($request, '/api/emails') === 0):
-            // authenticate($secretKey);
+        case ($request === '/api/received-response' || $request === '/api/emails' || strpos($request, '/api/emails') === 0):
             require __DIR__ . '/../app/received_response.php';
             break;
 
-        case (preg_match('#^/api/master/smtps/(\d+)/accounts/(\d+)$#', $request, $m) ? true : false):
-            // authenticate($secretKey);
+        case (preg_match('#^/api/master/smtps/(\d+)/accounts/(\d+)$#', $request, $m)):
             $_GET['smtp_server_id'] = $m[1];
-            $_GET['account_id']     = $m[2];
+            $_GET['account_id'] = $m[2];
             require __DIR__ . '/../includes/smtp_accounts.php';
             break;
 
-        case (preg_match('#^/api/master/smtps/(\d+)/accounts$#', $request, $m) ? true : false):
-            // authenticate($secretKey);
+        case (preg_match('#^/api/master/smtps/(\d+)/accounts$#', $request, $m)):
             $_GET['smtp_server_id'] = $m[1];
             require __DIR__ . '/../includes/smtp_accounts.php';
             break;
 
         default:
-            // If none of the above matched AND we didn't already exit in earlier handlers:
-            // Only 404 for non-?endpoint handlers
             if (!$endpoint) {
-                send_json(['error' => 'Endpoint not found'], 404);
+                send_json(['status' => 'error', 'message' => 'Endpoint not found'], 404);
             }
-            // else, we already handled ?endpoint= routes earlier (or they were invalid)
-            send_json(['error' => 'Endpoint not found'], 404);
+            send_json(['status' => 'error', 'message' => 'Endpoint not found'], 404);
     }
 } catch (Exception $e) {
-    send_json(['error' => $e->getMessage()], 500);
+    send_json(['status' => 'error', 'message' => $e->getMessage()], 500);
 }
+?>

@@ -4,6 +4,10 @@ import { v4 as uuidv4 } from "uuid";
 
 const API_BASE = "http://localhost/CRM_API/backend/routes/api.php";
 
+// Always use credentials: "include"
+const fetchWithSession = (url, options = {}) =>
+  fetch(url, { ...options, credentials: "include" });
+
 const checkRetryProgress = async () => {
   try {
     const res = await fetch(
@@ -69,9 +73,7 @@ const EmailVerification = () => {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const res = await fetch(`${API_BASE}?endpoint=check-auth`, {
-          credentials: "include",
-        });
+        const res = await fetchWithSession(`${API_BASE}?endpoint=check-auth`);
         const data = await res.json();
         if (data.status === "success") {
           setUser(data.user);
@@ -188,7 +190,7 @@ const EmailVerification = () => {
 
     try {
       setLoading(true);
-      const res = await fetch(
+      const res = await fetchWithSession(
         "http://localhost/CRM_API/backend/routes/api.php/api/upload",
         {
           method: "POST",

@@ -56,6 +56,7 @@ export default function Navbar({ user, setUser }) {
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-50 text-green-800 font-medium border border-green-200 shadow-sm">
                   <i className="fas fa-user text-green-600 text-sm"></i>
                   <span className="text-sm truncate max-w-[150px]">{user.name}</span>
+                  {/* <span className="text-sm truncate max-w-[150px]">{user.email}</span> */}
                 </div>
                 <button
                   onClick={handleLogout}
