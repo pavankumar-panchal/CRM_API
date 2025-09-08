@@ -28,7 +28,7 @@ const TopProgressBar = () => {
         return;
       }
       try {
-        const data = await api.get('/includes/progress.php');
+  const data = await api.get('/routes/api.php?endpoint=progress');
         if (
           data &&
           typeof data.percent === 'number' &&

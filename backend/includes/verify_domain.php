@@ -165,15 +165,31 @@ try {
     $total = $conn->query("SELECT COUNT(*) FROM emails")->fetch_row()[0];
     $verified = $conn->query("SELECT COUNT(*) FROM emails WHERE domain_verified = 1")->fetch_row()[0];
 
-    echo json_encode([
-        "status" => "success",
-        "processed" => (int) $processed,
-        "total_domains" => (int) $total,
-        "verified_domains" => (int) $verified,
-        "time_seconds" => round($total_time, 2),
-        "rate_per_second" => round($processed / $total_time, 2),
-        "message" => "Parallel processing completed"
-    ]);
+        // Safety: ensure csv_list entries remain 'running' while any email in the list
+        // still requires domain verification or SMTP processing. This prevents the
+        // domain step from accidentally marking a list as 'completed' before SMTP
+        // verification runs.
+        $conn->query(
+                "UPDATE csv_list cl
+                 JOIN (
+                     SELECT csv_list_id, COUNT(*) AS pending
+                     FROM emails
+                     WHERE (domain_verified = 0 OR domain_processed = 0)
+                     GROUP BY csv_list_id
+                 ) e ON e.csv_list_id = cl.id
+                 SET cl.status = 'running'
+                 WHERE e.pending > 0 AND cl.status = 'completed'"
+        );
+
+        echo json_encode([
+                "status" => "success",
+                "processed" => (int) $processed,
+                "total_domains" => (int) $total,
+                "verified_domains" => (int) $verified,
+                "time_seconds" => round($total_time, 2),
+                "rate_per_second" => round($processed / $total_time, 2),
+                "message" => "Parallel processing completed"
+        ]);
 
 } catch (Exception $e) {
     echo json_encode([

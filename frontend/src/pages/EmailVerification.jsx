@@ -3,21 +3,54 @@ import EmailsList from "./EmailsList";
 import { v4 as uuidv4 } from "uuid";
 import api from "../lib/api";
 
-const checkRetryProgress = async () => {
-  try {
-    const res = await fetch(
-      "http://localhost/CRM_API/backend/includes/retry_smtp.php?progress=1"
-    );
-    return await res.json();
-  } catch (error) {
-    console.error("Error checking retry progress:", error);
-    return {
-      processed: 0,
-      total: 0,
-      percent: 0,
-      stage: "error",
-    };
-  }
+// Retry progress helper removed; global retry is not used
+
+// Lightweight adaptive poller factory.
+// - fetcher: async fn that performs the fetch
+// - opts: { interval, maxInterval, backoffMultiplier, immediate }
+// Returns an object with start() and stop() methods.
+const createPoller = (fetcher, opts = {}) => {
+  const {
+    interval = 5000,
+    maxInterval = 60000,
+    backoffMultiplier = 1.5,
+    immediate = true,
+  } = opts;
+
+  let timer = null;
+  let stopped = true;
+  let currentInterval = interval;
+
+  const run = async () => {
+    if (stopped) return;
+    try {
+      await fetcher();
+      // reset interval on success
+      currentInterval = interval;
+    } catch {
+      // backoff on error
+      currentInterval = Math.min(Math.ceil(currentInterval * backoffMultiplier), maxInterval);
+    }
+
+    if (!stopped) timer = setTimeout(run, currentInterval);
+  };
+
+  return {
+    start() {
+      if (!stopped) return; // already running
+      stopped = false;
+      currentInterval = interval;
+      if (immediate) run();
+      else timer = setTimeout(run, currentInterval);
+    },
+    stop() {
+      stopped = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+  };
 };
 
 const EmailVerification = () => {
@@ -54,11 +87,12 @@ const EmailVerification = () => {
   // Details state
   const [expandedListId, setExpandedListId] = useState(null);
 
-  const progressInterval = useRef(null);
+  // progressPollerRef replaces any interval-based tracking
+  const listsPollerRef = useRef(null);
+  const progressPollerRef = useRef(null);
   const searchTimeout = useRef();
 
-  // Retry failed count state
-  const [retryFailedCount, setRetryFailedCount] = useState(0);
+  // Retry state per-list
   const [retryingList, setRetryingList] = useState({}); // { [listId]: boolean }
 
   // Search input state
@@ -82,7 +116,7 @@ const EmailVerification = () => {
   }, []);
 
   // Fetch lists
-  const fetchLists = async () => {
+  const fetchLists = React.useCallback(async () => {
     try {
       const params = new URLSearchParams({
         page: listPagination.page,
@@ -90,53 +124,44 @@ const EmailVerification = () => {
         search: listPagination.search,
       });
 
-  const data = await api.get(`/includes/get_csv_list.php?${params}`);
-  setLists(Array.isArray(data.data) ? data.data : []);
-      console.log("Fetched lists:", data.data); // <-- Debug log
+      const data = await api.get(`/routes/api.php?endpoint=get-csv-list&${params}`);
+      setLists(Array.isArray(data.data) ? data.data : []);
+      // console.debug("Fetched lists:", data.data);
       setListPagination((prev) => ({ ...prev, total: data.total || 0 }));
     } catch (error) {
       console.error("Error fetching lists:", error);
       setLists([]);
       setListPagination((prev) => ({ ...prev, total: 0 }));
       setStatus({ type: "error", message: "Failed to load lists" });
+      throw error;
     }
-  };
-
-  // Fetch retry failed count
-  const fetchRetryFailedCount = async () => {
-    try {
-  const data = await api.get('/includes/get_results.php?retry_failed=1');
-      if (data.status === "success") {
-        setRetryFailedCount(data.total);
-        // setStatus({ type: "success", message: data.message });
-      } else {
-        setRetryFailedCount(0);
-        // setStatus({ type: "error", message: data.message });
-      }
-    } catch (error) {
-      console.error("Error fetching retry failed count:", error);
-      setRetryFailedCount(0);
-      // setStatus({ type: "error", message: "Failed to fetch retry failed count" });
-    }
-  };
-
-  // Fetch retry failed count on mount and whenever lists change
-  useEffect(() => {
-    fetchRetryFailedCount();
-  }, [lists]);
-
-  // Optionally, poll lists and retry count every 5 seconds for live updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchLists();
-      fetchRetryFailedCount();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    fetchLists();
   }, [listPagination.page, listPagination.rowsPerPage, listPagination.search]);
+
+
+  // Start a resilient poller for lists + retry count
+  useEffect(() => {
+    // stop previous if any
+    if (listsPollerRef.current) {
+      listsPollerRef.current.stop();
+      listsPollerRef.current = null;
+    }
+
+    listsPollerRef.current = createPoller(async () => {
+      await fetchLists();
+    }, { interval: 5000, maxInterval: 60000, backoffMultiplier: 1.5, immediate: true });
+
+    listsPollerRef.current.start();
+
+    return () => {
+      listsPollerRef.current && listsPollerRef.current.stop();
+      listsPollerRef.current = null;
+    };
+  }, [fetchLists]);
+
+  useEffect(() => {
+    // When pagination/search changes, refresh lists immediately.
+    fetchLists().catch(() => {});
+  }, [listPagination.page, listPagination.rowsPerPage, listPagination.search, fetchLists]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -188,13 +213,11 @@ const EmailVerification = () => {
         setShowProgress(true);
         startProgressTracking();
         setFormData({ listName: "", fileName: "", csvFile: null });
-        fetchLists(); // Fetch latest lists
-        fetchRetryFailedCount(); // Fetch latest retry count
+  fetchLists(); // Fetch latest lists
       } else {
         setStatus({ type: "error", message: data.message || "Upload failed" });
       }
-    } catch (error) {
-      console.error("Error uploading file:", error);
+    } catch {
       setStatus({ type: "error", message: "Network error" });
     } finally {
       setLoading(false);
@@ -203,7 +226,7 @@ const EmailVerification = () => {
 
   const exportEmails = async (type, listId) => {
     try {
-  const text = await api.request(`/includes/get_results.php?export=${type}&csv_list_id=${listId}`);
+  const text = await api.request(`/routes/api.php?endpoint=get-results&export=${type}&csv_list_id=${listId}`);
   // api.request returns text for non-json responses
   const blob = new Blob([text], { type: 'text/csv' });
   const downloadUrl = window.URL.createObjectURL(blob);
@@ -215,36 +238,37 @@ const EmailVerification = () => {
       link.remove();
 
       setStatus({ type: "success", message: `Exported ${type} emails list` });
-    } catch (error) {
+    } catch {
       setStatus({ type: "error", message: `Failed to export ${type} emails` });
     }
   };
 
   const startProgressTracking = () => {
-    if (progressInterval.current) clearInterval(progressInterval.current);
+    // stop any existing poller
+    if (progressPollerRef.current) {
+      progressPollerRef.current.stop();
+      progressPollerRef.current = null;
+    }
 
-    progressInterval.current = setInterval(async () => {
-      try {
-  const data = await api.get('/includes/progress.php');
-        setProgress(data);
+    progressPollerRef.current = createPoller(async () => {
+      const data = await api.get('/routes/api.php?endpoint=progress');
+      setProgress(data);
+      // refresh lists while progress is active
+      await fetchLists();
 
-        fetchLists();
-
-        // FIX: Replace invalid unicode 'U+0030' with 0
-        if (data.total > 0 && data.processed >= data.total) {
-          clearInterval(progressInterval.current);
-          setTimeout(() => {
-            setShowProgress(false);
-            setStatus({ type: "success", message: "Verification completed!" });
-            fetchLists();
-          }, 1000);
-        }
-      } catch (error) {
-        console.error("Error fetching progress:", error);
-        clearInterval(progressInterval.current);
-        setShowProgress(false);
+      // if finished, stop poller and hide progress
+      if (data.total > 0 && data.processed >= data.total) {
+        progressPollerRef.current && progressPollerRef.current.stop();
+        progressPollerRef.current = null;
+        setTimeout(() => {
+          setShowProgress(false);
+          setStatus({ type: "success", message: "Verification completed!" });
+          fetchLists().catch(() => {});
+        }, 1000);
       }
-    }, 2000);
+    }, { interval: 2000, maxInterval: 30000, backoffMultiplier: 1.4, immediate: true });
+
+    progressPollerRef.current.start();
   };
 
   const StatusMessage = ({ status, onClose }) =>
@@ -302,15 +326,7 @@ const EmailVerification = () => {
     }
   }, [status]);
 
-  useEffect(() => {
-    let interval;
-    if (showProgress) {
-      interval = setInterval(() => {
-        fetchLists();
-      }, 2000);
-    }
-    return () => clearInterval(interval);
-  }, [showProgress]);
+  // showProgress is managed by pollers; no separate interval needed
 
   // Update handleSearchChange to update local input state immediately
   const handleSearchChange = (e) => {
@@ -331,57 +347,7 @@ const EmailVerification = () => {
     setSearchInput(listPagination.search);
   }, [listPagination.search]);
 
-  const handleRetryFailed = async () => {
-    setLoading(true);
-    setStatus(null);
-
-    try {
-      // Always fetch latest retry-failed count before retry
-      await fetchRetryFailedCount();
-
-      // Start by checking how many need retry
-  const countData = await api.get('/includes/get_results.php?retry_failed=1');
-
-      if (countData.total === 0) {
-        setStatus({ type: "error", message: "No failed emails to retry" });
-        setLoading(false);
-        return;
-      }
-
-      // Start the retry process
-  const startData = await api.post('/routes/api.php/api/retry-failed');
-
-      if (startData.status !== "success") {
-        throw new Error(startData.message || "Failed to start retry");
-      }
-
-      setStatus({
-        type: "success",
-        message: `Retry started for ${countData.total} emails`,
-      });
-
-      setShowProgress(true);
-      const progressInterval = setInterval(async () => {
-        const progress = await checkRetryProgress();
-        setProgress(progress);
-
-        fetchLists(); // Keep lists updated during retry
-
-        if (progress.stage === "complete" || progress.stage === "error") {
-          clearInterval(progressInterval);
-          setTimeout(() => {
-            setShowProgress(false);
-            fetchLists();
-            fetchRetryFailedCount();
-          }, 2000);
-        }
-      }, 1500);
-    } catch (error) {
-      setStatus({ type: "error", message: error.message });
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Global retry removed; only per-list retry is supported
 
   const handleRetryFailedByList = async (listId) => {
     setRetryingList((prev) => ({ ...prev, [listId]: true }));
@@ -389,7 +355,7 @@ const EmailVerification = () => {
 
     try {
       // Fetch failed count for this list
-  const countData = await api.get(`/includes/get_results.php?retry_failed=1&csv_list_id=${listId}`);
+  const countData = await api.get(`/routes/api.php?endpoint=get-results&retry_failed=1&csv_list_id=${listId}`);
 
       if (!countData.total || countData.total === 0) {
         setStatus({ type: "error", message: "No failed emails to retry for this list" });
@@ -398,7 +364,7 @@ const EmailVerification = () => {
       }
 
       // Start retry for this list
-  const startData = await api.post(`/includes/retry_smtp.php?csv_list_id=${listId}`);
+  const startData = await api.post(`/routes/api.php?endpoint=retry-smtp&csv_list_id=${listId}`);
 
       if (startData.status !== "success") {
         throw new Error(startData.message || "Failed to start retry");
@@ -432,7 +398,7 @@ const EmailVerification = () => {
     }
   };
 
-  const failedCount = lists.filter((list) => list.domain_status === 2).length;
+  // derived counts used directly where needed
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -450,6 +416,18 @@ const EmailVerification = () => {
       </div>
 
       <StatusMessage status={status} onClose={() => setStatus(null)} />
+
+      {/* Compact progress banner when active */}
+      {showProgress && (
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-40 px-4 py-2 rounded-md bg-white border shadow flex items-center gap-3">
+          <div className="text-sm">
+            <div className="font-medium">
+              {progress && progress.stage === 'smtp' ? 'SMTP verification' : progress && progress.stage === 'domain' ? 'Domain verification' : 'Processing'}
+            </div>
+            <div className="text-xs text-gray-500">{progress.processed}/{progress.total} ({progress.percent || 0}%)</div>
+          </div>
+        </div>
+      )}
 
       {/* Upload Section */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8 mt-12">
@@ -677,67 +655,8 @@ const EmailVerification = () => {
                 onChange={handleSearchChange}
               />
             </div>
-            <div className="flex gap-2">
-              {/* <button
-                onClick={() => exportEmails("valid")}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
-              >
-                <svg
-                  className="w-4 h-4 mr-2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                  />
-                </svg>
-                Export Valid
-              </button> */}
-              {/* <button
-                onClick={() => exportEmails("invalid")}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center"
-              >
-                <svg
-                  className="w-4 h-4 mr-2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                  />
-                </svg>
-                Export Invalid
-              </button> */}
-              {/* <button
-                onClick={handleRetryFailed}
-                disabled={loading || retryFailedCount === 0}
-                className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors flex items-center"
-              >
-                <svg
-                  className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M4 4v5h5M20 20v-5h-5M5.5 8.5a8 8 0 0113 0M18.5 15.5a8 8 0 01-13 0"
-                  />
-                </svg>
-                {loading ? "Retrying..." : `Retry Failed (${retryFailedCount})`}
-              </button> */}
-           
-            </div>
+              <div className="flex gap-2">
+              </div>
           </div>
         </div>
 

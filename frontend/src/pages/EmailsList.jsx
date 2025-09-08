@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import api from "../lib/api";
 
 const EmailsList = ({ listId, onClose }) => {
@@ -10,26 +10,41 @@ const EmailsList = ({ listId, onClose }) => {
     rowsPerPage: 10, // Increased default for large datasets
     total: 0,
   });
+  const fetchControllerRef = useRef(null);
+  const [counts, setCounts] = useState({ all: 0, valid: 0, invalid: 0, timeout: 0 });
   const [filter, setFilter] = useState("all"); // 'all', 'valid', 'invalid', 'timeout'
 
-  // Fetch email details for the given listId
-  const fetchListEmails = async () => {
+  // Fetch email details for the given listId (server-side paginated)
+  const fetchListEmails = useCallback(async ({ page = pagination.page, rowsPerPage = pagination.rowsPerPage, filterVal = filter } = {}) => {
+    // abort previous
+    if (fetchControllerRef.current) {
+      try { fetchControllerRef.current.abort(); } catch (err) { console.debug('abort', err); }
+      fetchControllerRef.current = null;
+    }
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
+
+    setLoading(true);
     try {
-  setLoading(true);
-  const data = await api.get(`/routes/api.php/api/results?csv_list_id=${listId}&limit=1000000`);
-      setListEmails(Array.isArray(data.data) ? data.data : []);
-      setPagination((prev) => ({
-        ...prev,
-        total: Array.isArray(data.data) ? data.data.length : 0,
-      }));
-      console.log("Fetched emails:", data.data);
+      const params = new URLSearchParams();
+      params.set('csv_list_id', listId);
+      params.set('page', String(page));
+      params.set('limit', String(rowsPerPage));
+      if (filterVal && filterVal !== 'all') params.set('filter', filterVal);
+
+      const data = await api.get(`/routes/api.php/api/results?${params.toString()}`, { signal: controller.signal });
+      const rows = Array.isArray(data.data) ? data.data : [];
+      setListEmails(rows);
+      setPagination((prev) => ({ ...prev, page: data.page || page, total: data.total || 0 }));
     } catch (error) {
+      if (error && error.name === 'AbortError') return;
+      console.error('Failed to load list emails', error);
       setListEmails([]);
       setStatus({ type: "error", message: "Failed to load list emails" });
     } finally {
       setLoading(false);
     }
-  };
+  }, [listId, pagination.page, pagination.rowsPerPage, filter]);
 
   // Utility function for timeout detection
   const isTimeout = (e) =>
@@ -39,35 +54,52 @@ const EmailsList = ({ listId, onClose }) => {
       .includes("connection refused") ||
     (e.validation_response || "").toLowerCase().includes("failed to connect");
 
-  // Filter emails based on current filter
-  const filteredEmails = listEmails.filter((email) => {
-    if (filter === "all") return true;
-    if (filter === "valid") return email.domain_status === 1;
-    if (filter === "invalid")
-      return email.domain_status === 0 && !isTimeout(email);
-    if (filter === "timeout") return isTimeout(email);
-    return true;
-  });
+  // With server-side pagination, listEmails already contains current page
+  const paginatedEmails = listEmails;
 
-  // Calculate paginated emails
-  const paginatedEmails = filteredEmails.slice(
-    (pagination.page - 1) * pagination.rowsPerPage,
-    pagination.page * pagination.rowsPerPage
-  );
-
-  // Fetch emails on mount and when listId changes
+  // Fetch emails when listId, page, rowsPerPage or filter changes
   useEffect(() => {
-    fetchListEmails();
-  }, [listId]);
+    fetchListEmails({ page: pagination.page, rowsPerPage: pagination.rowsPerPage, filterVal: filter });
+  }, [listId, pagination.page, pagination.rowsPerPage, filter, fetchListEmails]);
 
-  // Reset pagination when filter or rowsPerPage changes
+  // Reset to page 1 when filter or rowsPerPage changes
   useEffect(() => {
-    setPagination((prev) => ({
-      ...prev,
-      page: 1,
-      total: filteredEmails.length,
-    }));
+    setPagination((prev) => ({ ...prev, page: 1 }));
   }, [filter, pagination.rowsPerPage]);
+
+  // Fetch counts for each filter to show in buttons (uses backend total)
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    const fetchCount = async (filterVal) => {
+      const params = new URLSearchParams();
+      params.set('csv_list_id', listId);
+      params.set('page', '1');
+      params.set('limit', '1');
+      if (filterVal && filterVal !== 'all') params.set('filter', filterVal);
+      try {
+        const data = await api.get(`/routes/api.php/api/results?${params.toString()}`, { signal: controller.signal });
+        return data.total || 0;
+      } catch (err) {
+        if (err && err.name === 'AbortError') return 0;
+        console.debug('count fetch error', err);
+        return 0;
+      }
+    };
+
+    (async () => {
+      if (!listId) return;
+      const [all, valid, invalid, timeout] = await Promise.all([
+        fetchCount(''),
+        fetchCount('valid'),
+        fetchCount('invalid'),
+        fetchCount('timeout'),
+      ]);
+      if (!cancelled) setCounts({ all, valid, invalid, timeout });
+    })();
+
+    return () => { cancelled = true; try{ controller.abort(); } catch(e){} };
+  }, [listId]);
 
   // Status message component
   const StatusMessage = ({ status, onClose }) =>
@@ -388,18 +420,18 @@ const EmailsList = ({ listId, onClose }) => {
             >
               Previous
             </button>
-            <button
-              onClick={() =>
-                setPagination((prev) => ({ ...prev, page: prev.page + 1 }))
-              }
-              disabled={
+              <button
+                onClick={() =>
+                  setPagination((prev) => ({ ...prev, page: prev.page + 1 }))
+                }
+                disabled={
                 pagination.page >=
-                Math.ceil(filteredEmails.length / pagination.rowsPerPage)
+                Math.ceil(pagination.total / pagination.rowsPerPage)
               }
-              className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-            >
-              Next
-            </button>
+                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+              >
+                Next
+              </button>
           </div>
           <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
             <div>
@@ -412,10 +444,10 @@ const EmailsList = ({ listId, onClose }) => {
                 <span className="font-medium">
                   {Math.min(
                     pagination.page * pagination.rowsPerPage,
-                    filteredEmails.length
+                    pagination.total
                   )}
                 </span>{" "}
-                of <span className="font-medium">{filteredEmails.length}</span>{" "}
+                of <span className="font-medium">{pagination.total}</span>{" "}
                 results
               </p>
             </div>
@@ -435,7 +467,7 @@ const EmailsList = ({ listId, onClose }) => {
                       ...prev,
                       page: 1,
                       rowsPerPage: Number(e.target.value),
-                      total: filteredEmails.length,
+                      total: pagination.total,
                     }));
                   }}
                   className="border border-gray-300 rounded-md shadow-sm py-1 pl-2 pr-8 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
@@ -473,7 +505,7 @@ const EmailsList = ({ listId, onClose }) => {
                 </button>
                 <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
                   Page {pagination.page} of{" "}
-                  {Math.ceil(filteredEmails.length / pagination.rowsPerPage)}
+                  {Math.ceil(pagination.total / pagination.rowsPerPage) || 1}
                 </span>
                 <button
                   onClick={() =>
@@ -481,7 +513,7 @@ const EmailsList = ({ listId, onClose }) => {
                   }
                   disabled={
                     pagination.page >=
-                    Math.ceil(filteredEmails.length / pagination.rowsPerPage)
+                    Math.ceil(pagination.total / pagination.rowsPerPage)
                   }
                   className="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                 >
@@ -493,13 +525,13 @@ const EmailsList = ({ listId, onClose }) => {
                     setPagination((prev) => ({
                       ...prev,
                       page: Math.ceil(
-                        filteredEmails.length / pagination.rowsPerPage
+                        pagination.total / pagination.rowsPerPage
                       ),
                     }))
                   }
                   disabled={
                     pagination.page >=
-                    Math.ceil(filteredEmails.length / pagination.rowsPerPage)
+                    Math.ceil(pagination.total / pagination.rowsPerPage)
                   }
                   className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                 >

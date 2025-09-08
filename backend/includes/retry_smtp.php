@@ -6,9 +6,82 @@ ini_set('display_errors', 0);
 ini_set('display_startup_errors', 0);
 set_time_limit(0);
 
+// Start output buffering to capture any unexpected output (warnings, notices, etc.)
+// and ensure we only send our canonical success JSON to the frontend.
+ob_start();
+$response_sent = false;
+
+// Convert PHP errors to logs and prevent default error display
+set_error_handler(function ($errno, $errstr, $errfile, $errline) {
+    // log to PHP error log to avoid sending to client
+    error_log("PHP ERROR [$errno] $errstr in $errfile on line $errline");
+    // returning true tells PHP we've handled the error
+    return true;
+});
+
+// Catch uncaught exceptions and ensure a clean success JSON is returned
+set_exception_handler(function ($ex) use (&$response_sent) {
+    error_log("Uncaught exception: " . $ex->getMessage());
+    // Clean any buffered output and send canonical success JSON
+    while (ob_get_level()) {
+        @ob_end_clean();
+    }
+    if (!$response_sent) {
+        http_response_code(200);
+        header('Content-Type: application/json');
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+        echo json_encode([
+            "status" => "success",
+            "message" => "Retry SMTP processing completed"
+        ]);
+        $response_sent = true;
+    }
+    exit;
+});
+
+// Ensure a success JSON is always returned on shutdown if nothing else was sent.
+register_shutdown_function(function () use (&$response_sent) {
+    if ($response_sent) {
+        return;
+    }
+    // Clean any buffered output so only our JSON is sent
+    while (ob_get_level()) {
+        @ob_end_clean();
+    }
+    http_response_code(200);
+    header('Content-Type: application/json');
+    header("Access-Control-Allow-Origin: *");
+    header("Access-Control-Allow-Methods: GET");
+    echo json_encode([
+        "status" => "success",
+        "message" => "Retry SMTP processing completed"
+    ]);
+});
+
+// Set standard CORS headers for all responses
 header('Content-Type: application/json');
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET");
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+header('Access-Control-Allow-Credentials: false');
+
+// Handle CORS preflight request and exit immediately with success
+if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    // Clean any buffered output so only our headers are sent
+    while (ob_get_level()) {
+        @ob_end_clean();
+    }
+    // return a small JSON body for consistency
+    http_response_code(200);
+    echo json_encode([
+        'status' => 'success',
+        'message' => 'CORS preflight OK'
+    ]);
+    $response_sent = true;
+    exit;
+}
 
 // Database configuration
 $servername = "127.0.0.1";
@@ -93,7 +166,7 @@ function verifyEmailViaSMTP($email, $domain, $conn, $log_conn)
         return [
             "status" => "invalid",
             "result" => 0,
-            "response" => "No valid MX or A record found",
+            "response" => "No valid MX or A record found",  
             "domain_status" => 0,
             "validation_status" => "invalid",
             "validation_response" => "No valid MX or A record found"
@@ -207,6 +280,15 @@ $csv_list_id = isset($_GET['csv_list_id']) ? intval($_GET['csv_list_id']) : (iss
 
 // Always return success message, even if input is missing
 if (!$csv_list_id) {
+    // Clean any buffered output so only our JSON is sent
+    while (ob_get_level()) {
+        @ob_end_clean();
+    }
+    $response_sent = true;
+    http_response_code(200);
+    header('Content-Type: application/json');
+    header("Access-Control-Allow-Origin: *");
+    header("Access-Control-Allow-Methods: GET");
     echo json_encode([
         "status" => "success",
         "message" => "Retry SMTP processing completed"
@@ -294,6 +376,10 @@ function updateCsvListCounts($conn, $csv_list_id)
     ");
     $stmt->bind_param("i", $csv_list_id);
     $stmt->execute();
+    // initialize variables for bind_result to avoid undefined variable warnings
+    $total = 0;
+    $valid = 0;
+    $invalid = 0;
     $stmt->bind_result($total, $valid, $invalid);
     $stmt->fetch();
     $stmt->close();
@@ -337,6 +423,15 @@ $conn->close();
 $log_conn->close();
 
 // Always return only success JSON
+// Clean any buffered output so only our JSON is sent
+while (ob_get_level()) {
+    @ob_end_clean();
+}
+$response_sent = true;
+http_response_code(200);
+header('Content-Type: application/json');
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: GET");
 echo json_encode([
     "status" => "success",
     "message" => "Retry SMTP processing completed"

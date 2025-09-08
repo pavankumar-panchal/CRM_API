@@ -17,6 +17,8 @@
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.6.2",
     "uuid": "^11.1.0"
+  ,"swagger-ui-react": "^4.16.0",
+  "swagger-ui-dist": "^4.16.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",

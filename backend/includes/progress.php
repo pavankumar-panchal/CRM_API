@@ -39,6 +39,8 @@ $user_id = isset($jwtData->id) ? intval($jwtData->id) : 0;
     $whereUser = $user_id > 0 ? "AND c.user_id = $user_id" : "";
 
     // Check if any emails are in progress (not fully processed and not part of completed csv_list)
+    // For SMTP stage, domain_processed may be 0 while domain_status already has a value (1/0/2).
+    // Count any email that still needs domain verification OR SMTP processing.
     $inProgressResult = $conn->query(
         "SELECT COUNT(*) as cnt 
         FROM emails e
@@ -46,7 +48,7 @@ $user_id = isset($jwtData->id) ? intval($jwtData->id) : 0;
         WHERE c.status != 'completed' 
         AND (
             e.domain_verified = 0 
-            OR (e.domain_processed = 0 AND (e.domain_status IS NULL OR e.domain_status = ''))
+            OR e.domain_processed = 0
         ) $whereUser"
     );
     $inProgress = $inProgressResult->fetch_assoc()['cnt'] ?? 0;

@@ -32,6 +32,24 @@ function decode_jwt_from_header() {
     if (!$headers) return null;
     if (preg_match('/Bearer\s+(.*)$/i', $headers, $matches)) {
         $jwt = $matches[1];
+        // Allow configured test tokens to act as universal auth for testing
+        $cfg = $GLOBALS['jwt_config'];
+        // legacy single token
+        if (!empty($cfg['test_token']) && hash_equals($cfg['test_token'], $jwt)) {
+            return (object)['id' => 0, 'name' => 'dev', 'email' => 'dev@example.com'];
+        }
+        // multiple tokens list
+        if (!empty($cfg['test_tokens']) && is_array($cfg['test_tokens'])) {
+            foreach ($cfg['test_tokens'] as $t) {
+                if ($t !== '' && hash_equals($t, $jwt)) {
+                    // map token to user if mapping provided
+                    if (!empty($cfg['test_token_map']) && is_array($cfg['test_token_map']) && !empty($cfg['test_token_map'][$jwt])) {
+                        return (object)$cfg['test_token_map'][$jwt];
+                    }
+                    return (object)['id' => 0, 'name' => 'test', 'email' => 'test@example.com'];
+                }
+            }
+        }
         try {
             $decoded = JWT::decode($jwt, new Key($GLOBALS['jwt_config']['secret'], 'HS256'));
             return $decoded->data ?? null;

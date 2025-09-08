@@ -1,0 +1,119 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CRM_API",
+    "version": "1.0.0",
+    "description": "OpenAPI spec limited to login, upload, get-csv-list, get-results and retry-smtp endpoints for testing."
+  },
+  "servers": [
+    { "url": "http://localhost/CRM_API/backend", "description": "Local backend" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [ { "bearerAuth": [] } ],
+  "paths": {
+    "/routes/api.php?endpoint=login": {
+      "post": {
+        "summary": "Login user (public)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string" }
+                },
+                "required": ["email","password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "message": { "type": "string" },
+                    "token": { "type": "string" },
+                    "user": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+
+    "/routes/api.php?endpoint=get-csv-list": {
+      "get": {
+        "summary": "List CSV uploads",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer" }, "example": 1 },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" }, "example": 10 },
+          { "name": "search", "in": "query", "schema": { "type": "string" } }
+        ],
+  "responses": { "200": { "description": "List returned", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+
+    "/routes/api.php?endpoint=get-results": {
+      "get": {
+        "summary": "Get results or export",
+        "parameters": [
+          { "name": "csv_list_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "export", "in": "query", "schema": { "type": "string", "enum": ["valid","invalid","all"] } }
+        ],
+        "responses": { "200": { "description": "Results or export file/text" } }
+      }
+    },
+
+    "/routes/api.php?endpoint=retry-smtp": {
+      "post": {
+        "summary": "Retry SMTP for failed emails in a CSV list",
+        "parameters": [
+          { "name": "csv_list_id", "in": "query", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Retry accepted / started" } }
+      }
+    },
+
+    "/routes/api.php/api/upload": {
+      "post": {
+        "summary": "Upload CSV file (multipart/form-data)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "csv_file": { "type": "string", "format": "binary" },
+                  "list_name": { "type": "string" },
+                  "file_name": { "type": "string" }
+                },
+                "required": ["csv_file","list_name","file_name"]
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Upload accepted" }, "400": { "description": "Validation error" } }
+      }
+    }
+  }
+}

@@ -6,7 +6,7 @@ function getToken() {
   return localStorage.getItem('jwt_token');
 }
 
-async function request(url, { method = 'GET', headers = {}, body = undefined } = {}) {
+async function request(url, { method = 'GET', headers = {}, body = undefined, signal = undefined } = {}) {
   // If url looks relative to backend (starts with /), prepend base
   const fullUrl = url.startsWith('http') ? url : `${DEFAULT_BASE}${url}`;
 
@@ -14,7 +14,15 @@ async function request(url, { method = 'GET', headers = {}, body = undefined } =
   const finalHeaders = { ...headers };
   if (token) finalHeaders['Authorization'] = `Bearer ${token}`;
 
-  const opts = { method, headers: finalHeaders };
+  // Default fetch options to better handle CORS and cookies
+  const opts = {
+    method,
+    headers: finalHeaders,
+    mode: 'cors',
+  // Do not include credentials by default to avoid CORS credential issues
+  credentials: 'omit',
+    signal
+  };
   if (body !== undefined) {
     // If body is FormData, let fetch set the content-type
     if (body instanceof FormData) {

@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import React, { useState, useEffect } from "react";
 import api from "./lib/api";
 import EmailVerification from "./pages/EmailVerification.jsx";
+import SwaggerUIPage from "./pages/SwaggerUI.jsx";
 import Navbar from "./components/Navbar.jsx";
 import "./index.css";
 import TopProgressBar from "./components/TopProgressBar.jsx";
@@ -49,6 +50,10 @@ function App() {
               <EmailVerification />
             </ProtectedRoute>
           }
+        />
+        <Route
+          path="/swagger"
+          element={<SwaggerUIPage />}
         />
       </Routes>
     </BrowserRouter>
